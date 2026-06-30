@@ -1,3 +1,4 @@
+import DetailStage from "@/components/DetailStage"
 import HeroStage from "@/components/HeroStage"
 
 export default function Page() {
@@ -61,32 +62,35 @@ export default function Page() {
                 klar. USB-C ut høgre side. Skrur saman med ei baseplate og fire føter.
               </p>
             </div>
-            <ul className="spec">
-              <li>
-                <span>Ytre mål</span>
-                <span>62 × 60 × 42 mm</span>
-              </li>
-              <li>
-                <span>Veggtjukkelse</span>
-                <span>2,4 mm</span>
-              </li>
-              <li>
-                <span>LED-vindauge</span>
-                <span>1,2 mm skin</span>
-              </li>
-              <li>
-                <span>LED-rutenett</span>
-                <span>5 × 5 · 3,8 mm</span>
-              </li>
-              <li>
-                <span>Skruer</span>
-                <span>M2 sjølvgjengande</span>
-              </li>
-              <li>
-                <span>Print</span>
-                <span>FDM · kobolt PLA</span>
-              </li>
-            </ul>
+            <div className="detail-col">
+              <DetailStage />
+              <ul className="spec">
+                <li>
+                  <span>Ytre mål</span>
+                  <span>62 × 60 × 42 mm</span>
+                </li>
+                <li>
+                  <span>Veggtjukkelse</span>
+                  <span>2,4 mm</span>
+                </li>
+                <li>
+                  <span>LED-vindauge</span>
+                  <span>1,2 mm skin</span>
+                </li>
+                <li>
+                  <span>LED-rutenett</span>
+                  <span>5 × 5 · 3,8 mm</span>
+                </li>
+                <li>
+                  <span>Skruer</span>
+                  <span>M2 sjølvgjengande</span>
+                </li>
+                <li>
+                  <span>Print</span>
+                  <span>FDM · kobolt PLA</span>
+                </li>
+              </ul>
+            </div>
           </div>
         </section>
       </main>
