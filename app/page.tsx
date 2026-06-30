@@ -47,33 +47,6 @@ export default function Page() {
         </section>
 
         <section className="block">
-          <div className="k">interaksjon</div>
-          <h2 className="serif">Fire flater, fire kommandoar.</h2>
-          <div className="cols">
-            <div className="card">
-              <div className="tag">01</div>
-              <h3>Flat</h3>
-              <p>Legg klossen flatt — spel av.</p>
-            </div>
-            <div className="card">
-              <div className="tag">02</div>
-              <h3>På enden</h3>
-              <p>Sett han på høgkant — pause.</p>
-            </div>
-            <div className="card">
-              <div className="tag">03</div>
-              <h3>Vri venstre</h3>
-              <p>Forrige spor.</p>
-            </div>
-            <div className="card">
-              <div className="tag">04</div>
-              <h3>Vri høgre</h3>
-              <p>Neste spor.</p>
-            </div>
-          </div>
-        </section>
-
-        <section className="block">
           <div className="two">
             <div>
               <div className="k">kropp</div>

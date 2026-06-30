@@ -1,24 +1,29 @@
 "use client"
 
 import { Canvas, useFrame, useThree } from "@react-three/fiber"
-import { useGLTF } from "@react-three/drei"
-import { CuboidCollider, Physics, RigidBody, type RapierRigidBody } from "@react-three/rapier"
+import { Environment, Lightformer, useGLTF } from "@react-three/drei"
+import {
+  CuboidCollider,
+  Physics,
+  RigidBody,
+  useRapier,
+  type RapierRigidBody,
+} from "@react-three/rapier"
 import { Suspense, useEffect, useMemo, useRef, useState } from "react"
 import * as THREE from "three"
 import { buildWalls, type Box, FLOOR, WALL_COL_HEIGHT } from "@/lib/layout"
 
 const MODEL_URL = "/microbit_cube.glb"
 
-const G = 22 // gravity strength (down)
-const FILL = 0.75 // the cube reads best a touch smaller — 75% of a frame-filling size
-const BASE_FILL = 0.92 // how much of the visible half-width the cube fills before the 0.75 trim
+const G = 22 // gravity strength
+const SIZE = 1.4 // cube's largest dimension, as a multiple of the framed half-width
 
 // drag / carry servo constants (ported from the klossete engine)
 const GRAB_RATE = 9
 const GRAB_RESPONSE = 0.35
 const MAX_DRAG_SPEED = 7
 const THROW_MAX = 5.0
-const MIN_LIFT = 1.4
+const MIN_LIFT = 1.1
 const TAP_TIME = 0.2
 const TAP_MOVE = 0.25
 const TWIST_EASE = 0.2
@@ -44,8 +49,8 @@ function useViewHalf() {
 }
 
 // Angled hero camera: looks down at the origin from the front so the cube's
-// rounded top and the speaker face both read. Framed so the playable box always
-// fits with margin — the cube is centred, so it is always in frame.
+// rounded top and the speaker face both read. The cube is centred, so it is
+// always in frame — framed tight so the cube reads big.
 function CameraRig({ half }: { half: number }) {
   const camera = useThree((s) => s.camera)
   const size = useThree((s) => s.size)
@@ -54,17 +59,16 @@ function CameraRig({ half }: { half: number }) {
     const aspect = size.width / size.height
     const fov = 32
     const halfV = Math.tan((fov / 2) * (Math.PI / 180))
-    const margin = 1.35
-    const need = (half * margin) / Math.min(1, aspect)
-    const dist = need / halfV + 1.0
-    const el = THREE.MathUtils.degToRad(52) // 0 = side-on, 90 = top-down
+    const need = half / Math.min(1, aspect) // frame ±half (tight: cube fills it)
+    const dist = need / halfV + 0.3
+    const el = THREE.MathUtils.degToRad(46) // 0 = side-on, 90 = top-down
     cam.fov = fov
     cam.position.set(0, Math.sin(el) * dist, Math.cos(el) * dist)
     cam.up.set(0, 1, 0)
     cam.near = 0.1
     cam.far = 400
     cam.aspect = aspect
-    cam.lookAt(0, 0.1, 0)
+    cam.lookAt(0, half * 0.42, 0)
     cam.updateProjectionMatrix()
   }, [camera, size, half])
   return null
@@ -92,7 +96,7 @@ function Cube({
     bbox.getSize(size)
     bbox.getCenter(center)
     const maxDim = Math.max(size.x, size.y, size.z) || 1
-    const target = half * BASE_FILL * FILL // world size of the largest dimension
+    const target = half * SIZE // world size of the largest dimension
     const s = target / maxDim
     clone.position.sub(center) // recentre to origin
     clone.traverse((child) => {
@@ -110,7 +114,7 @@ function Cube({
     () => ({ radius: Math.hypot(halfExtents.x, halfExtents.z) }),
     [halfExtents],
   )
-  const spawnY = halfExtents.y + 0.6 // a small drop-in on load
+  const spawnY = halfExtents.y + 0.5 // a small drop-in on load
 
   const onPointerDown = (e: any) => {
     e.stopPropagation()
@@ -140,6 +144,45 @@ function Cube({
   )
 }
 
+// Device-tilt → gravity. Off by default (the cube rests centred and framed).
+// When on, the way you tilt the phone is the way the cube rolls. iOS needs a
+// permission grant from a user gesture — handled in HeroStage before this mounts.
+function TiltController({ tilt }: { tilt: boolean }) {
+  const { world } = useRapier()
+  const target = useRef({ beta: 0, gamma: 0 })
+  const cur = useRef({ beta: 0, gamma: 0 })
+  useEffect(() => {
+    if (!tilt) return
+    const onO = (e: DeviceOrientationEvent) => {
+      target.current.beta = e.beta ?? 0
+      target.current.gamma = e.gamma ?? 0
+    }
+    window.addEventListener("deviceorientation", onO)
+    return () => window.removeEventListener("deviceorientation", onO)
+  }, [tilt])
+  useFrame(() => {
+    if (!world) return
+    if (!tilt) {
+      world.gravity.x = 0
+      world.gravity.y = -G
+      world.gravity.z = 0
+      return
+    }
+    cur.current.beta += (target.current.beta - cur.current.beta) * 0.12
+    cur.current.gamma += (target.current.gamma - cur.current.gamma) * 0.12
+    const b = THREE.MathUtils.clamp(cur.current.beta, -70, 70) * (Math.PI / 180)
+    const g = THREE.MathUtils.clamp(cur.current.gamma, -70, 70) * (Math.PI / 180)
+    const gx = Math.sin(g) // tilt right → roll right
+    const gz = Math.sin(b) // tilt top away → roll back up-screen
+    const gy = -Math.max(Math.cos(b) * Math.cos(g), 0.2) // always some pull to the floor
+    const v = new THREE.Vector3(gx, gy, gz).normalize().multiplyScalar(G)
+    world.gravity.x = v.x
+    world.gravity.y = v.y
+    world.gravity.z = v.z
+  })
+  return null
+}
+
 type DragState = {
   body: RapierRigidBody
   plane: THREE.Plane
@@ -151,7 +194,7 @@ type DragState = {
   radius: number
 }
 
-function Scene({ half }: { half: number }) {
+function Scene({ half, tilt }: { half: number; tilt: boolean }) {
   const { camera, gl } = useThree()
   const box: Box = useMemo(() => ({ bx: half * 1.04, bz: half * 1.04 }), [half])
   const colliderWalls = useMemo(() => buildWalls(box, WALL_COL_HEIGHT), [box])
@@ -347,18 +390,23 @@ function Scene({ half }: { half: number }) {
   return (
     <>
       <CameraRig half={half} />
+      <TiltController tilt={tilt} />
 
-      {/* flat, shadowless lighting — no external HDR, no shadow maps */}
-      <ambientLight intensity={1.15} color="#fff6ec" />
-      <hemisphereLight args={["#ffffff", "#cdc8be", 0.7]} />
-      <directionalLight position={[5, 12, 7]} intensity={2.1} color="#ffffff" />
-      <directionalLight position={[-7, 6, -3]} intensity={0.9} color="#cfe0ff" />
-      <directionalLight position={[0, 4, -9]} intensity={0.6} color="#ffffff" />
+      {/* studio lighting — value variation (not cast shadows) deepens the cobalt.
+          A local Lightformer environment gives a soft sheen with no external HDR. */}
+      <ambientLight intensity={0.5} color="#fff4e6" />
+      <directionalLight position={[5, 12, 7]} intensity={1.6} color="#ffffff" />
+      <directionalLight position={[-7, 5, -3]} intensity={0.55} color="#a9c2ff" />
+      <Environment resolution={256}>
+        <Lightformer intensity={1.4} position={[0, 5, 3]} scale={[10, 10, 1]} color="#fff1dc" />
+        <Lightformer intensity={0.7} position={[-5, 2, -4]} scale={[8, 8, 1]} color="#b9d0ff" />
+        <Lightformer intensity={0.5} position={[5, 1, 4]} scale={[6, 6, 1]} color="#ffffff" />
+      </Environment>
 
       {/* floor (visual, no shadow catcher) */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]}>
         <planeGeometry args={[FLOOR, FLOOR]} />
-        <meshStandardMaterial color="#e7e3d9" roughness={1} metalness={0} />
+        <meshStandardMaterial color="#e3dfd4" roughness={1} metalness={0} />
       </mesh>
 
       {/* ground collider — top face sits exactly at y=0 so the cube rests on it */}
@@ -380,7 +428,7 @@ function Scene({ half }: { half: number }) {
   )
 }
 
-export default function CubeScene() {
+export default function CubeScene({ tilt = false }: { tilt?: boolean }) {
   const half = useViewHalf()
   return (
     <Canvas
@@ -395,7 +443,7 @@ export default function CubeScene() {
     >
       <color attach="background" args={["#e9e6dd"]} />
       <Physics gravity={[0, -G, 0]} timeStep={1 / 60} numSolverIterations={8} maxCcdSubsteps={2} interpolate>
-        <Scene half={half} />
+        <Scene half={half} tilt={tilt} />
       </Physics>
     </Canvas>
   )
