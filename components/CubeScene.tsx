@@ -1,7 +1,7 @@
 "use client"
 
 import { Canvas, useFrame, useThree } from "@react-three/fiber"
-import { ContactShadows, useGLTF } from "@react-three/drei"
+import { useGLTF } from "@react-three/drei"
 import {
   CuboidCollider,
   Physics,
@@ -61,16 +61,17 @@ function CameraRig({ half }: { half: number }) {
     const aspect = size.width / size.height
     const fov = 32
     const halfV = Math.tan((fov / 2) * (Math.PI / 180))
-    const need = half / Math.min(1, aspect) // frame ±half (tight: cube fills it)
+    const margin = 1.28 // breathing room so the cube + its shadow never crowd the frame edge
+    const need = (half * margin) / Math.min(1, aspect) // frame ±half (+margin)
     const dist = need / halfV + 0.3
-    const el = THREE.MathUtils.degToRad(40) // 0 = side-on, 90 = top-down
+    const el = THREE.MathUtils.degToRad(33) // 0 = side-on, 90 = top-down — a calmer, more level product angle
     cam.fov = fov
     cam.position.set(0, Math.sin(el) * dist, Math.cos(el) * dist)
     cam.up.set(0, 1, 0)
     cam.near = 0.1
     cam.far = 400
     cam.aspect = aspect
-    cam.lookAt(0, half * 0.34, 0)
+    cam.lookAt(0, half * 0.22, 0)
     cam.updateProjectionMatrix()
   }, [camera, size, half])
   return null
@@ -397,9 +398,11 @@ function Scene({ half, tilt }: { half: number; tilt: boolean }) {
       <CameraRig half={half} />
       <TiltController tilt={tilt} />
 
-      {/* klossete-style lighting: a warm key light from the top casts a hard
-          shadow down-screen; a low cool fill keeps the dark side from going flat.
-          N8AO (in PostFx) + the contact shadow ground the cube. */}
+      {/* klossete-style lighting: a warm key light from the top casts a single
+          hard shadow down-screen; a low cool fill keeps the dark side from
+          going flat. N8AO (in PostFx) adds contact grounding — no second,
+          separately-baked shadow technique sharing the same floor plane (that
+          combination z-fought into a striped/banded artifact). */}
       <ambientLight intensity={0.5} color="#fff3e3" />
       <directionalLight
         position={[-3.5, 13, -2.5]}
@@ -407,8 +410,8 @@ function Scene({ half, tilt }: { half: number; tilt: boolean }) {
         color="#fff0d8"
         castShadow
         shadow-mapSize={[2048, 2048]}
-        shadow-bias={-0.0004}
-        shadow-normalBias={0.02}
+        shadow-bias={-0.0009}
+        shadow-normalBias={0.045}
       >
         <orthographicCamera attach="shadow-camera" args={[-shadowSpan, shadowSpan, shadowSpan, -shadowSpan, 1, 40]} />
       </directionalLight>
@@ -419,17 +422,6 @@ function Scene({ half, tilt }: { half: number; tilt: boolean }) {
         <planeGeometry args={[FLOOR, FLOOR]} />
         <meshStandardMaterial color="#e3dfd4" roughness={1} metalness={0} />
       </mesh>
-
-      {/* crisp grounding contact shadow under the cube ("hard skugge") */}
-      <ContactShadows
-        position={[0, 0.001, 0]}
-        scale={half * 4}
-        resolution={1024}
-        far={half * 2}
-        blur={1.4}
-        opacity={0.62}
-        color="#1c160e"
-      />
 
       {/* ground collider — top face sits exactly at y=0 so the cube rests on it */}
       <RigidBody type="fixed" colliders={false}>
