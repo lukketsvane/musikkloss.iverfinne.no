@@ -1,7 +1,7 @@
 "use client"
 
 import { Canvas, useFrame, useThree } from "@react-three/fiber"
-import { Environment, Lightformer, useGLTF } from "@react-three/drei"
+import { ContactShadows, useGLTF } from "@react-three/drei"
 import {
   CuboidCollider,
   Physics,
@@ -12,11 +12,13 @@ import {
 import { Suspense, useEffect, useMemo, useRef, useState } from "react"
 import * as THREE from "three"
 import { buildWalls, type Box, FLOOR, WALL_COL_HEIGHT } from "@/lib/layout"
+import { PostFx } from "@/components/PostFx"
 
 const MODEL_URL = "/microbit_cube.glb"
 
 const G = 22 // gravity strength
 const SIZE = 1.4 // cube's largest dimension, as a multiple of the framed half-width
+const HERO_YAW = -0.42 // resting yaw that presents the speaker face + rounded top
 
 // drag / carry servo constants (ported from the klossete engine)
 const GRAB_RATE = 9
@@ -61,14 +63,14 @@ function CameraRig({ half }: { half: number }) {
     const halfV = Math.tan((fov / 2) * (Math.PI / 180))
     const need = half / Math.min(1, aspect) // frame ±half (tight: cube fills it)
     const dist = need / halfV + 0.3
-    const el = THREE.MathUtils.degToRad(46) // 0 = side-on, 90 = top-down
+    const el = THREE.MathUtils.degToRad(40) // 0 = side-on, 90 = top-down
     cam.fov = fov
     cam.position.set(0, Math.sin(el) * dist, Math.cos(el) * dist)
     cam.up.set(0, 1, 0)
     cam.near = 0.1
     cam.far = 400
     cam.aspect = aspect
-    cam.lookAt(0, half * 0.42, 0)
+    cam.lookAt(0, half * 0.34, 0)
     cam.updateProjectionMatrix()
   }, [camera, size, half])
   return null
@@ -102,8 +104,8 @@ function Cube({
     clone.traverse((child) => {
       const mesh = child as THREE.Mesh
       if (!mesh.isMesh) return
-      mesh.castShadow = false // no shadows — flat, clean render per the brief
-      mesh.receiveShadow = false
+      mesh.castShadow = true
+      mesh.receiveShadow = true
     })
     const he = new THREE.Vector3(size.x, size.y, size.z).multiplyScalar(s / 2)
     return { object: clone, meshScale: s, halfExtents: he }
@@ -114,7 +116,9 @@ function Cube({
     () => ({ radius: Math.hypot(halfExtents.x, halfExtents.z) }),
     [halfExtents],
   )
-  const spawnY = halfExtents.y + 0.5 // a small drop-in on load
+  // Sit the cube flat on the floor at a clean hero angle — no drop-in tumble, so
+  // the default pose is always the same flattering 3/4 (not a random rolled rest).
+  const spawnY = halfExtents.y + 0.002
 
   const onPointerDown = (e: any) => {
     e.stopPropagation()
@@ -126,7 +130,7 @@ function Cube({
     <RigidBody
       ref={ref}
       position={[0, spawnY, 0]}
-      rotation={[0, Math.PI * 0.12, 0]}
+      rotation={[0, HERO_YAW, 0]}
       colliders={false}
       friction={0.7}
       restitution={0.1}
@@ -198,6 +202,7 @@ function Scene({ half, tilt }: { half: number; tilt: boolean }) {
   const { camera, gl } = useThree()
   const box: Box = useMemo(() => ({ bx: half * 1.04, bz: half * 1.04 }), [half])
   const colliderWalls = useMemo(() => buildWalls(box, WALL_COL_HEIGHT), [box])
+  const shadowSpan = half * 2.2 // ortho shadow-camera half-extent, covers the floor
 
   const drag = useRef<DragState | null>(null)
   const twoFinger = useRef(false)
@@ -392,22 +397,39 @@ function Scene({ half, tilt }: { half: number; tilt: boolean }) {
       <CameraRig half={half} />
       <TiltController tilt={tilt} />
 
-      {/* studio lighting — value variation (not cast shadows) deepens the cobalt.
-          A local Lightformer environment gives a soft sheen with no external HDR. */}
-      <ambientLight intensity={0.5} color="#fff4e6" />
-      <directionalLight position={[5, 12, 7]} intensity={1.6} color="#ffffff" />
-      <directionalLight position={[-7, 5, -3]} intensity={0.55} color="#a9c2ff" />
-      <Environment resolution={256}>
-        <Lightformer intensity={1.4} position={[0, 5, 3]} scale={[10, 10, 1]} color="#fff1dc" />
-        <Lightformer intensity={0.7} position={[-5, 2, -4]} scale={[8, 8, 1]} color="#b9d0ff" />
-        <Lightformer intensity={0.5} position={[5, 1, 4]} scale={[6, 6, 1]} color="#ffffff" />
-      </Environment>
+      {/* klossete-style lighting: a warm key light from the top casts a hard
+          shadow down-screen; a low cool fill keeps the dark side from going flat.
+          N8AO (in PostFx) + the contact shadow ground the cube. */}
+      <ambientLight intensity={0.5} color="#fff3e3" />
+      <directionalLight
+        position={[-3.5, 13, -2.5]}
+        intensity={2.4}
+        color="#fff0d8"
+        castShadow
+        shadow-mapSize={[2048, 2048]}
+        shadow-bias={-0.0004}
+        shadow-normalBias={0.02}
+      >
+        <orthographicCamera attach="shadow-camera" args={[-shadowSpan, shadowSpan, shadowSpan, -shadowSpan, 1, 40]} />
+      </directionalLight>
+      <directionalLight position={[6, 5, 4]} intensity={0.5} color="#bcd2ff" />
 
-      {/* floor (visual, no shadow catcher) */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]}>
+      {/* floor (receives the cast shadow) */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
         <planeGeometry args={[FLOOR, FLOOR]} />
         <meshStandardMaterial color="#e3dfd4" roughness={1} metalness={0} />
       </mesh>
+
+      {/* crisp grounding contact shadow under the cube ("hard skugge") */}
+      <ContactShadows
+        position={[0, 0.001, 0]}
+        scale={half * 4}
+        resolution={1024}
+        far={half * 2}
+        blur={1.4}
+        opacity={0.62}
+        color="#1c160e"
+      />
 
       {/* ground collider — top face sits exactly at y=0 so the cube rests on it */}
       <RigidBody type="fixed" colliders={false}>
@@ -432,11 +454,13 @@ export default function CubeScene({ tilt = false }: { tilt?: boolean }) {
   const half = useViewHalf()
   return (
     <Canvas
+      shadows
       dpr={[1, 1.75]}
       gl={{ antialias: true, preserveDrawingBuffer: false, powerPreference: "high-performance" }}
       camera={{ position: [0, 6, 6], fov: 32, near: 0.1, far: 400 }}
       onCreated={({ gl }) => {
-        gl.toneMapping = THREE.ACESFilmicToneMapping
+        // tone mapping is handled by the PostFx ToneMapping effect
+        gl.toneMapping = THREE.NoToneMapping
         gl.domElement.style.cursor = "grab"
       }}
       style={{ touchAction: "none" }}
@@ -445,6 +469,7 @@ export default function CubeScene({ tilt = false }: { tilt?: boolean }) {
       <Physics gravity={[0, -G, 0]} timeStep={1 / 60} numSolverIterations={8} maxCcdSubsteps={2} interpolate>
         <Scene half={half} tilt={tilt} />
       </Physics>
+      <PostFx />
     </Canvas>
   )
 }
