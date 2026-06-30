@@ -1,0 +1,404 @@
+"use client"
+
+import { Canvas, useFrame, useThree } from "@react-three/fiber"
+import { useGLTF } from "@react-three/drei"
+import { CuboidCollider, Physics, RigidBody, type RapierRigidBody } from "@react-three/rapier"
+import { Suspense, useEffect, useMemo, useRef, useState } from "react"
+import * as THREE from "three"
+import { buildWalls, type Box, FLOOR, WALL_COL_HEIGHT } from "@/lib/layout"
+
+const MODEL_URL = "/microbit_cube.glb"
+
+const G = 22 // gravity strength (down)
+const FILL = 0.75 // the cube reads best a touch smaller — 75% of a frame-filling size
+const BASE_FILL = 0.92 // how much of the visible half-width the cube fills before the 0.75 trim
+
+// drag / carry servo constants (ported from the klossete engine)
+const GRAB_RATE = 9
+const GRAB_RESPONSE = 0.35
+const MAX_DRAG_SPEED = 7
+const THROW_MAX = 5.0
+const MIN_LIFT = 1.4
+const TAP_TIME = 0.2
+const TAP_MOVE = 0.25
+const TWIST_EASE = 0.2
+const TWIST_MAX_RATE = 2.6
+
+// visible half-width of the floor we frame. Phones tighter so the cube reads big.
+function viewHalf(w: number, h: number) {
+  const min = Math.min(w, h)
+  if (min < 520) return 1.7
+  if (min < 820) return 2.0
+  return 2.2
+}
+
+function useViewHalf() {
+  const [half, setHalf] = useState(2.2)
+  useEffect(() => {
+    const update = () => setHalf(viewHalf(window.innerWidth, window.innerHeight))
+    update()
+    window.addEventListener("resize", update)
+    return () => window.removeEventListener("resize", update)
+  }, [])
+  return half
+}
+
+// Angled hero camera: looks down at the origin from the front so the cube's
+// rounded top and the speaker face both read. Framed so the playable box always
+// fits with margin — the cube is centred, so it is always in frame.
+function CameraRig({ half }: { half: number }) {
+  const camera = useThree((s) => s.camera)
+  const size = useThree((s) => s.size)
+  useEffect(() => {
+    const cam = camera as THREE.PerspectiveCamera
+    const aspect = size.width / size.height
+    const fov = 32
+    const halfV = Math.tan((fov / 2) * (Math.PI / 180))
+    const margin = 1.35
+    const need = (half * margin) / Math.min(1, aspect)
+    const dist = need / halfV + 1.0
+    const el = THREE.MathUtils.degToRad(52) // 0 = side-on, 90 = top-down
+    cam.fov = fov
+    cam.position.set(0, Math.sin(el) * dist, Math.cos(el) * dist)
+    cam.up.set(0, 1, 0)
+    cam.near = 0.1
+    cam.far = 400
+    cam.aspect = aspect
+    cam.lookAt(0, 0.1, 0)
+    cam.updateProjectionMatrix()
+  }, [camera, size, half])
+  return null
+}
+
+type CubeHandle = { radius: number }
+
+function Cube({
+  half,
+  onGrab,
+}: {
+  half: number
+  onGrab: (body: RapierRigidBody, point: THREE.Vector3, h: CubeHandle) => void
+}) {
+  const gltf = useGLTF(MODEL_URL)
+
+  // Clone, recentre on the origin and normalise the size so the cube fits the
+  // frame regardless of the GLB's authored scale. The cuboid collider is sized
+  // to the scaled mesh so physics and visuals never drift.
+  const { object, meshScale, halfExtents } = useMemo(() => {
+    const clone = gltf.scene.clone(true)
+    const bbox = new THREE.Box3().setFromObject(clone)
+    const size = new THREE.Vector3()
+    const center = new THREE.Vector3()
+    bbox.getSize(size)
+    bbox.getCenter(center)
+    const maxDim = Math.max(size.x, size.y, size.z) || 1
+    const target = half * BASE_FILL * FILL // world size of the largest dimension
+    const s = target / maxDim
+    clone.position.sub(center) // recentre to origin
+    clone.traverse((child) => {
+      const mesh = child as THREE.Mesh
+      if (!mesh.isMesh) return
+      mesh.castShadow = false // no shadows — flat, clean render per the brief
+      mesh.receiveShadow = false
+    })
+    const he = new THREE.Vector3(size.x, size.y, size.z).multiplyScalar(s / 2)
+    return { object: clone, meshScale: s, halfExtents: he }
+  }, [gltf.scene, half])
+
+  const ref = useRef<RapierRigidBody>(null)
+  const handle: CubeHandle = useMemo(
+    () => ({ radius: Math.hypot(halfExtents.x, halfExtents.z) }),
+    [halfExtents],
+  )
+  const spawnY = halfExtents.y + 0.6 // a small drop-in on load
+
+  const onPointerDown = (e: any) => {
+    e.stopPropagation()
+    if (!ref.current) return
+    onGrab(ref.current, e.point.clone(), handle)
+  }
+
+  return (
+    <RigidBody
+      ref={ref}
+      position={[0, spawnY, 0]}
+      rotation={[0, Math.PI * 0.12, 0]}
+      colliders={false}
+      friction={0.7}
+      restitution={0.1}
+      density={6}
+      linearDamping={0.2}
+      angularDamping={1.1}
+      canSleep={false}
+      ccd
+    >
+      <CuboidCollider args={[halfExtents.x, halfExtents.y, halfExtents.z]} />
+      <group scale={meshScale} onPointerDown={onPointerDown}>
+        <primitive object={object} dispose={null} />
+      </group>
+    </RigidBody>
+  )
+}
+
+type DragState = {
+  body: RapierRigidBody
+  plane: THREE.Plane
+  localAnchor: THREE.Vector3
+  liftY: number
+  baseLift: number
+  grabTime: number
+  startPos: THREE.Vector3
+  radius: number
+}
+
+function Scene({ half }: { half: number }) {
+  const { camera, gl } = useThree()
+  const box: Box = useMemo(() => ({ bx: half * 1.04, bz: half * 1.04 }), [half])
+  const colliderWalls = useMemo(() => buildWalls(box, WALL_COL_HEIGHT), [box])
+
+  const drag = useRef<DragState | null>(null)
+  const twoFinger = useRef(false)
+  const twist = useRef<{ base: THREE.Quaternion; start: number; delta: number } | null>(null)
+  const pointerNdc = useRef(new THREE.Vector2())
+  const raycaster = useMemo(() => new THREE.Raycaster(), [])
+
+  const onGrab = (body: RapierRigidBody, point: THREE.Vector3, h: CubeHandle) => {
+    gl.domElement.style.cursor = "grabbing"
+    const ndc = point.clone().project(camera)
+    pointerNdc.current.set(ndc.x, ndc.y)
+    const t = body.translation()
+    const r = body.rotation()
+    const center = new THREE.Vector3(t.x, t.y, t.z)
+    const q = new THREE.Quaternion(r.x, r.y, r.z, r.w)
+    const localAnchor = point.clone().sub(center).applyQuaternion(q.clone().invert())
+    const grabY = THREE.MathUtils.clamp(point.y, 0.2, half * 1.6)
+    body.wakeUp()
+    body.setLinvel({ x: 0, y: 0, z: 0 }, true)
+    body.setAngvel({ x: 0, y: 0, z: 0 }, true)
+    drag.current = {
+      body,
+      plane: new THREE.Plane(new THREE.Vector3(0, 1, 0), -grabY),
+      localAnchor,
+      liftY: grabY,
+      baseLift: grabY,
+      grabTime: performance.now(),
+      startPos: center.clone(),
+      radius: h.radius,
+    }
+  }
+
+  /* ---- pointer tracking + release ---- */
+  useEffect(() => {
+    const el = gl.domElement
+    const setNdc = (e: PointerEvent) => {
+      const rect = el.getBoundingClientRect()
+      pointerNdc.current.x = ((e.clientX - rect.left) / rect.width) * 2 - 1
+      pointerNdc.current.y = -((e.clientY - rect.top) / rect.height) * 2 + 1
+    }
+    const onMove = (e: PointerEvent) => setNdc(e)
+    const onUp = () => {
+      const d = drag.current
+      el.style.cursor = "grab"
+      if (!d) return
+      if (!d.body.isValid()) {
+        drag.current = null
+        twist.current = null
+        twoFinger.current = false
+        return
+      }
+      const held = (performance.now() - d.grabTime) / 1000
+      const tp = d.body.translation()
+      const moved = Math.hypot(tp.x - d.startPos.x, tp.z - d.startPos.z)
+      if (held < TAP_TIME && moved < TAP_MOVE) {
+        d.body.setLinvel({ x: 0, y: 0, z: 0 }, true)
+        d.body.setAngvel({ x: 0, y: 0, z: 0 }, true)
+      } else {
+        const lv = d.body.linvel()
+        const v = new THREE.Vector3(lv.x, lv.y, lv.z)
+        if (v.length() > THROW_MAX) {
+          v.setLength(THROW_MAX)
+          d.body.setLinvel({ x: v.x, y: v.y, z: v.z }, true)
+        }
+      }
+      drag.current = null
+      twist.current = null
+      twoFinger.current = false
+    }
+    el.addEventListener("pointermove", onMove)
+    window.addEventListener("pointerup", onUp)
+    window.addEventListener("pointercancel", onUp)
+    return () => {
+      el.removeEventListener("pointermove", onMove)
+      window.removeEventListener("pointerup", onUp)
+      window.removeEventListener("pointercancel", onUp)
+    }
+  }, [gl, camera])
+
+  /* ---- two-finger twist (yaw the held cube) ---- */
+  useEffect(() => {
+    const el = gl.domElement
+    const twoAngle = (e: TouchEvent) =>
+      Math.atan2(
+        e.touches[1].clientY - e.touches[0].clientY,
+        e.touches[1].clientX - e.touches[0].clientX,
+      )
+    const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a))
+    const onStart = (e: TouchEvent) => {
+      if (e.touches.length === 2 && drag.current) {
+        twoFinger.current = true
+        const r = drag.current.body.rotation()
+        twist.current = { base: new THREE.Quaternion(r.x, r.y, r.z, r.w), start: twoAngle(e), delta: 0 }
+      }
+    }
+    const onMove = (e: TouchEvent) => {
+      if (e.touches.length !== 2 || !drag.current || !twist.current) return
+      twist.current.delta = -wrap(twoAngle(e) - twist.current.start)
+    }
+    const onEnd = (e: TouchEvent) => {
+      if (e.touches.length < 2) {
+        twoFinger.current = false
+        twist.current = null
+      }
+    }
+    el.addEventListener("touchstart", onStart, { passive: true })
+    el.addEventListener("touchmove", onMove, { passive: true })
+    el.addEventListener("touchend", onEnd, { passive: true })
+    el.addEventListener("touchcancel", onEnd, { passive: true })
+    return () => {
+      el.removeEventListener("touchstart", onStart)
+      el.removeEventListener("touchmove", onMove)
+      el.removeEventListener("touchend", onEnd)
+      el.removeEventListener("touchcancel", onEnd)
+    }
+  }, [gl])
+
+  /* ---- carry servo: hang the grabbed cube from the cursor ---- */
+  useFrame((_s, delta) => {
+    const d = drag.current
+    if (!d) return
+    if (!d.body.isValid()) {
+      drag.current = null
+      twist.current = null
+      twoFinger.current = false
+      return
+    }
+    const dt = THREE.MathUtils.clamp(delta, 1 / 240, 1 / 30)
+
+    if (twoFinger.current) {
+      const lv0 = d.body.linvel()
+      d.body.setLinvel({ x: 0, y: lv0.y, z: 0 }, true)
+      const tw = twist.current
+      if (tw) {
+        const r0 = d.body.rotation()
+        const targetQ = new THREE.Quaternion()
+          .setFromAxisAngle(new THREE.Vector3(0, 1, 0), tw.delta)
+          .multiply(tw.base)
+        const cur = new THREE.Quaternion(r0.x, r0.y, r0.z, r0.w)
+        const ang = 2 * Math.acos(THREE.MathUtils.clamp(Math.abs(cur.dot(targetQ)), 0, 1))
+        const maxStep = TWIST_MAX_RATE * dt
+        const f = ang > 1e-4 ? Math.min(TWIST_EASE, maxStep / ang) : 1
+        cur.slerp(targetQ, f)
+        d.body.setRotation({ x: cur.x, y: cur.y, z: cur.z, w: cur.w }, true)
+        d.body.setAngvel({ x: 0, y: 0, z: 0 }, true)
+      }
+      return
+    }
+
+    const held = (performance.now() - d.grabTime) / 1000
+    const pickup = THREE.MathUtils.smoothstep(held, 0.18, 0.6)
+    const targetLift = THREE.MathUtils.lerp(d.baseLift, MIN_LIFT, pickup)
+    d.liftY += (targetLift - d.liftY) * 0.12
+    d.plane.constant = -d.liftY
+
+    raycaster.setFromCamera(pointerNdc.current, camera)
+    const target = new THREE.Vector3()
+    if (!raycaster.ray.intersectPlane(d.plane, target)) return
+    const lx = Math.max(box.bx - d.radius, 0)
+    const lz = Math.max(box.bz - d.radius, 0)
+    target.x = THREE.MathUtils.clamp(target.x, -lx, lx)
+    target.z = THREE.MathUtils.clamp(target.z, -lz, lz)
+    target.y = d.liftY
+
+    const t = d.body.translation()
+    const r = d.body.rotation()
+    const q = new THREE.Quaternion(r.x, r.y, r.z, r.w)
+    const rWorld = d.localAnchor.clone().applyQuaternion(q)
+    let dvx = (target.x - (t.x + rWorld.x)) * GRAB_RATE
+    let dvy = (target.y - (t.y + rWorld.y)) * GRAB_RATE
+    let dvz = (target.z - (t.z + rWorld.z)) * GRAB_RATE
+    const dsp = Math.hypot(dvx, dvy, dvz)
+    if (dsp > MAX_DRAG_SPEED) {
+      const k = MAX_DRAG_SPEED / dsp
+      dvx *= k
+      dvy *= k
+      dvz *= k
+    }
+    const lv = d.body.linvel()
+    d.body.setLinvel(
+      {
+        x: lv.x + (dvx - lv.x) * GRAB_RESPONSE,
+        y: lv.y + (dvy - lv.y) * GRAB_RESPONSE,
+        z: lv.z + (dvz - lv.z) * GRAB_RESPONSE,
+      },
+      true,
+    )
+  })
+
+  return (
+    <>
+      <CameraRig half={half} />
+
+      {/* flat, shadowless lighting — no external HDR, no shadow maps */}
+      <ambientLight intensity={1.15} color="#fff6ec" />
+      <hemisphereLight args={["#ffffff", "#cdc8be", 0.7]} />
+      <directionalLight position={[5, 12, 7]} intensity={2.1} color="#ffffff" />
+      <directionalLight position={[-7, 6, -3]} intensity={0.9} color="#cfe0ff" />
+      <directionalLight position={[0, 4, -9]} intensity={0.6} color="#ffffff" />
+
+      {/* floor (visual, no shadow catcher) */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]}>
+        <planeGeometry args={[FLOOR, FLOOR]} />
+        <meshStandardMaterial color="#e7e3d9" roughness={1} metalness={0} />
+      </mesh>
+
+      {/* ground collider — top face sits exactly at y=0 so the cube rests on it */}
+      <RigidBody type="fixed" colliders={false}>
+        <CuboidCollider args={[FLOOR / 2, 0.5, FLOOR / 2]} position={[0, -0.5, 0]} />
+      </RigidBody>
+
+      {/* invisible containment walls so a hard throw never leaves the frame */}
+      {colliderWalls.map((w, i) => (
+        <RigidBody key={i} type="fixed" colliders={false} position={w.pos}>
+          <CuboidCollider args={w.half} />
+        </RigidBody>
+      ))}
+
+      <Suspense fallback={null}>
+        <Cube half={half} onGrab={onGrab} />
+      </Suspense>
+    </>
+  )
+}
+
+export default function CubeScene() {
+  const half = useViewHalf()
+  return (
+    <Canvas
+      dpr={[1, 1.75]}
+      gl={{ antialias: true, preserveDrawingBuffer: false, powerPreference: "high-performance" }}
+      camera={{ position: [0, 6, 6], fov: 32, near: 0.1, far: 400 }}
+      onCreated={({ gl }) => {
+        gl.toneMapping = THREE.ACESFilmicToneMapping
+        gl.domElement.style.cursor = "grab"
+      }}
+      style={{ touchAction: "none" }}
+    >
+      <color attach="background" args={["#e9e6dd"]} />
+      <Physics gravity={[0, -G, 0]} timeStep={1 / 60} numSolverIterations={8} maxCcdSubsteps={2} interpolate>
+        <Scene half={half} />
+      </Physics>
+    </Canvas>
+  )
+}
+
+useGLTF.preload(MODEL_URL)

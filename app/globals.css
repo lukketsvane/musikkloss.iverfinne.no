@@ -1,0 +1,73 @@
+:root{
+  --paper:#f3f0e9; --ink:#10182a; --cobalt:#1754b8; --cobalt-2:#0f3f8f;
+  --muted:#5c6373; --line:#dcd7cb; --max:1180px;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{
+  background:var(--paper); color:var(--ink);
+  font-family:var(--font-inter),"Inter",system-ui,sans-serif; font-size:17px; line-height:1.6;
+  -webkit-font-smoothing:antialiased; letter-spacing:.005em;
+}
+.wrap{max-width:var(--max); margin:0 auto; padding:0 28px}
+a{color:inherit}
+.serif{font-family:var(--font-newsreader),"Newsreader",Georgia,serif}
+
+/* top bar */
+header{position:sticky; top:0; z-index:10; backdrop-filter:saturate(120%) blur(8px);
+  background:color-mix(in srgb, var(--paper) 78%, transparent); border-bottom:1px solid var(--line)}
+header .wrap{display:flex; align-items:center; justify-content:space-between; height:64px}
+.brand{font-weight:600; letter-spacing:.01em}
+.brand b{color:var(--cobalt)}
+.nav{font-size:14px; color:var(--muted); text-decoration:none}
+.nav:hover{color:var(--ink)}
+
+/* hero */
+.hero{padding:46px 0 8px}
+.hero-grid{display:grid; grid-template-columns:1.05fr 1fr; gap:40px; align-items:center}
+.eyebrow{font-size:13px; letter-spacing:.14em; text-transform:uppercase; color:var(--cobalt); font-weight:600}
+h1{font-family:var(--font-newsreader),"Newsreader",serif; font-weight:400; font-size:clamp(40px,6vw,76px); line-height:1.02; margin:.28em 0 .2em; letter-spacing:-.01em}
+h1 em{font-style:italic; color:var(--cobalt)}
+.lede{font-size:19px; color:var(--muted); max-width:34ch; margin:0 0 26px}
+.meta{display:flex; gap:26px; font-size:13px; color:var(--muted); border-top:1px solid var(--line); padding-top:18px; max-width:34ch}
+.meta b{display:block; color:var(--ink); font-weight:600; letter-spacing:.01em}
+
+/* interactive viewer (R3F scene) */
+.stage{position:relative; aspect-ratio:1/1; border-radius:20px; overflow:hidden;
+  background:radial-gradient(120% 120% at 60% 20%, #eef2f8 0%, #e6e3da 70%, #ddd9cd 100%);
+  border:1px solid var(--line)}
+.stage canvas{display:block; width:100%; height:100%; touch-action:none}
+.hint{position:absolute; left:14px; bottom:12px; font-size:12px; color:var(--muted);
+  background:color-mix(in srgb,var(--paper) 70%,transparent); padding:4px 10px; border-radius:999px; pointer-events:none}
+.ar{position:absolute; right:14px; bottom:12px; font-size:12px; color:var(--cobalt); font-weight:600;
+  background:color-mix(in srgb,var(--paper) 80%,transparent); padding:5px 12px; border-radius:999px; text-decoration:none}
+.ar:hover{background:var(--paper)}
+
+/* sections */
+section.block{padding:66px 0; border-top:1px solid var(--line)}
+.k{font-size:13px; letter-spacing:.14em; text-transform:uppercase; color:var(--muted); font-weight:600; margin-bottom:8px}
+.block h2{font-family:var(--font-newsreader),"Newsreader",serif; font-weight:400; font-size:clamp(26px,3.4vw,38px); margin:.1em 0 .5em; letter-spacing:-.01em}
+.cols{display:grid; grid-template-columns:repeat(4,1fr); gap:22px; margin-top:30px}
+.card{border:1px solid var(--line); border-radius:14px; padding:20px; background:#fbf9f4}
+.card .tag{font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--cobalt); font-weight:600; margin-bottom:14px}
+.card h3{font-size:16px; margin:0 0 4px}
+.card p{font-size:14px; color:var(--muted); margin:0}
+.two{display:grid; grid-template-columns:1fr 1fr; gap:48px; align-items:start}
+.two p{color:var(--muted); max-width:46ch}
+.spec{list-style:none; padding:0; margin:0; border-top:1px solid var(--line)}
+.spec li{display:flex; justify-content:space-between; gap:16px; padding:13px 0; border-bottom:1px solid var(--line); font-size:15px}
+.spec li span:first-child{color:var(--muted)}
+.spec li span:last-child{font-variant-numeric:tabular-nums; text-align:right}
+
+footer{padding:40px 0 60px; border-top:1px solid var(--line); color:var(--muted); font-size:14px}
+footer .wrap{display:flex; justify-content:space-between; flex-wrap:wrap; gap:14px}
+footer a{text-decoration:none}
+footer a:hover{color:var(--ink)}
+
+@media(max-width:860px){
+  .hero-grid{grid-template-columns:1fr; gap:26px}
+  .order2{order:-1}
+  .cols{grid-template-columns:1fr 1fr}
+  .two{grid-template-columns:1fr; gap:26px}
+}
+@media(max-width:520px){ .cols{grid-template-columns:1fr} }
