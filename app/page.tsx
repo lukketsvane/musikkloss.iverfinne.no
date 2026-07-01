@@ -19,7 +19,6 @@ export default function Page() {
         <section className="hero">
           <div className="hero-grid">
             <div>
-              <div className="eyebrow">micro:bit V2 · gesturstyring</div>
               <h1 className="serif">
                 musikk&shy;klossen
                 <br />

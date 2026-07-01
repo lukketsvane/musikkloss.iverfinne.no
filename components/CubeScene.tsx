@@ -79,7 +79,7 @@ function CameraRig({ half, explode }: { half: number; explode: boolean }) {
     // breathing room so the cube + its shadow never crowd the frame edge — just
     // enough, not so much the product shrinks into a sea of empty background —
     // wider once exploded, since the parts spread well beyond the resting silhouette
-    const margin = explode ? 1.7 : 1.06
+    const margin = explode ? 1.5 : 0.96
     const need = (half * margin) / Math.min(1, aspect) // frame ±half (+margin)
     const dist = need / halfV + 0.3
     const el = THREE.MathUtils.degToRad(29) // 0 = side-on, 90 = top-down — level, eye-height product angle
@@ -204,6 +204,13 @@ function Cube({
       // perspective-distorting push forward to clear the shell's occlusion
       const mat = (mesh.material as THREE.MeshStandardMaterial).clone()
       mat.depthTest = false
+      // the source PCB material is authored full-metal (metalnessFactor
+      // defaults to 1 with no factor set) — correct with an HDR environment,
+      // but this scene has none, so under plain directional lights a true
+      // metal reads near-black except at exact specular angles. Clamp it
+      // toward a coated/diffuse board finish so it actually catches light.
+      mat.metalness = Math.min(mat.metalness, 0.3)
+      mat.roughness = Math.max(mat.roughness * 0.7, 0.35)
       mesh.material = mat
       mesh.renderOrder = 9
     })
@@ -291,11 +298,7 @@ function Cube({
         <group scale={meshScale}>{parts.base && <primitive object={parts.base} dispose={null} />}</group>
       </group>
       <group ref={boardRef} scale={0}>
-        {/* the board sits low inside the shell's shadow — a light that travels
-            with it (instead of relying on the key light, which the shell
-            itself blocks) so its components actually read once revealed */}
-        <pointLight position={[0, 0.55, 0.5]} intensity={0.35} distance={1.1} decay={2} color="#fff6e8" />
-        <group scale={board.scale}>
+        <group scale={board.scale} rotation={[Math.PI / 2, 0, 0]}>
           <primitive object={board.object} dispose={null} />
         </group>
       </group>
@@ -582,6 +585,11 @@ function Scene({ half, tilt, explode }: { half: number; tilt: boolean; explode: 
         <orthographicCamera attach="shadow-camera" args={[-shadowSpan, shadowSpan, shadowSpan, -shadowSpan, 1, 40]} />
       </directionalLight>
       <directionalLight position={[6, 5, 4]} intensity={0.85} color="#bcd2ff" />
+      {/* front fill for the exploded board's forward-facing side — the overhead
+          key light can't reach a near-vertical face, and a point light close
+          enough to help hotspots badly at this scale; a low directional has no
+          falloff, so it lights the standing board evenly instead */}
+      <directionalLight position={[0.5, 2, 7]} intensity={1.1} color="#eef1ff" />
 
       {/* floor (receives the cast shadow) */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
