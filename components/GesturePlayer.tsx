@@ -1,105 +1,132 @@
 "use client"
 
 import dynamic from "next/dynamic"
-import { useEffect, useState } from "react"
-import { useAmbientSynth } from "@/components/useAmbientSynth"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { LazyStage } from "@/components/LazyStage"
 
 const GestureScene = dynamic(() => import("@/components/GestureScene"), { ssr: false })
 
-// Fictional, unlicensed tracks — this simulates the gesture vocabulary the
-// real product uses to control playback, not a live Spotify integration.
+// Real Spotify — a curated set of tracks from Spotify's own "Peaceful Piano"
+// editorial playlist, played through Spotify's official Embed IFrame API. No
+// backend, no keys: the iframe is the real Spotify player (art, title, progress
+// and, if you're signed in to Spotify, full tracks — 30-second previews
+// otherwise). The 3D cube's turn/flip gestures drive it via the controller.
 const TRACKS = [
-  { title: "Kveldsro", artist: "Fjordlys", duration: 184 },
-  { title: "Tidevatn", artist: "Nordglid", duration: 201 },
-  { title: "Morgonlys", artist: "Steinvik", duration: 176 },
+  "spotify:track:1zTqMY0pncDuHkLsQp9JHr",
+  "spotify:track:0YWCYAFinPOcx2CHG0bwr3",
+  "spotify:track:0as3Ar1l4C2iHxQhhy7GIS",
+  "spotify:track:2hegfLKqobbWtYPg0Z31vm",
+  "spotify:track:53V3JhARNabT4QOob1K5yc",
+  "spotify:track:5LAptbUhdbsbUUhoV3Q1Oy",
+  "spotify:track:5rtLxR4M0ZGoTe6vQOjlrU",
+  "spotify:track:3LkQZrx4ozjCE1RxHON6Bc",
+  "spotify:track:5rwzsU8i7jowKL9O6mWWON",
+  "spotify:track:0ZwtjxyinvQPJy8dZGMXwo",
+  "spotify:track:4VCdqcivjBs1bfQAGB54rQ",
+  "spotify:track:0qFkEaASYYsIIQoYlN9SF9",
 ]
 
-function fmt(s: number) {
-  const m = Math.floor(s / 60)
-  const sec = Math.floor(s % 60)
-  return `${m}:${sec.toString().padStart(2, "0")}`
-}
+const API_SRC = "https://open.spotify.com/embed/iframe-api/v1"
 
 export default function GesturePlayer() {
-  const [trackIndex, setTrackIndex] = useState(0)
+  const embedRef = useRef<HTMLDivElement>(null)
+  const controller = useRef<any>(null)
+  const index = useRef(0)
+  const pendingPlay = useRef(false)
+  const [ready, setReady] = useState(false)
+  const [failed, setFailed] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
-  const [soundOn, setSoundOn] = useState(true)
-  const [elapsed, setElapsed] = useState(0)
-  const track = TRACKS[trackIndex]
 
-  useAmbientSynth(trackIndex, isPlaying, soundOn)
-
+  // create the Spotify embed controller once (this component is not lazily
+  // unmounted, so the controller persists for the page's lifetime)
   useEffect(() => {
-    if (!isPlaying) return
-    const id = setInterval(() => {
-      setElapsed((e) => {
-        if (e + 1 >= track.duration) {
-          setTrackIndex((i) => (i + 1) % TRACKS.length)
-          return 0
-        }
-        return e + 1
-      })
-    }, 1000)
-    return () => clearInterval(id)
-  }, [isPlaying, track.duration])
+    let cancelled = false
+    const make = (IFrameAPI: any) => {
+      if (cancelled || !embedRef.current) return
+      IFrameAPI.createController(
+        embedRef.current,
+        { uri: TRACKS[0], width: "100%", height: "152" },
+        (ctrl: any) => {
+          controller.current = ctrl
+          ctrl.addListener("ready", () => setReady(true))
+          ctrl.addListener("playback_update", (e: any) => {
+            setIsPlaying(!e.data.isPaused)
+            if (pendingPlay.current && !e.data.isPaused) pendingPlay.current = false
+          })
+        },
+      )
+    }
+    ;(window as any).onSpotifyIframeApiReady = make
+    if ((window as any).SpotifyIframeApi) {
+      make((window as any).SpotifyIframeApi)
+    } else if (!document.getElementById("spotify-iframe-api")) {
+      const s = document.createElement("script")
+      s.id = "spotify-iframe-api"
+      s.src = API_SRC
+      s.async = true
+      s.onerror = () => setFailed(true)
+      document.body.appendChild(s)
+    }
+    return () => {
+      cancelled = true
+      try {
+        controller.current?.destroy?.()
+      } catch {}
+      controller.current = null
+    }
+  }, [])
 
-  const skip = () => {
-    setTrackIndex((i) => (i + 1) % TRACKS.length)
-    setElapsed(0)
-    setIsPlaying(true)
-  }
-  const play = () => setIsPlaying(true)
-  const togglePlay = () => setIsPlaying((p) => !p)
+  const load = useCallback((i: number) => {
+    const c = controller.current
+    if (!c) return
+    index.current = (i + TRACKS.length) % TRACKS.length
+    pendingPlay.current = true
+    c.loadUri(TRACKS[index.current])
+    // loadUri swaps the track; give the embed a moment, then start it
+    window.setTimeout(() => {
+      if (pendingPlay.current) {
+        try {
+          c.play()
+        } catch {}
+      }
+    }, 450)
+  }, [])
+
+  const onTogglePlay = useCallback(() => controller.current?.togglePlay(), [])
+  const onPlay = useCallback(() => {
+    try {
+      controller.current?.resume()
+    } catch {
+      controller.current?.play()
+    }
+  }, [])
+  const onNext = useCallback(() => load(index.current + 1), [load])
+  const onPrev = useCallback(() => load(index.current - 1), [load])
 
   return (
     <div className="stage gesture-stage">
       <LazyStage className="gesture-canvas-layer">
-        <GestureScene isPlaying={isPlaying} onTogglePlay={togglePlay} onPlay={play} onSkip={skip} />
+        <GestureScene
+          isPlaying={isPlaying}
+          onTogglePlay={onTogglePlay}
+          onPlay={onPlay}
+          onNext={onNext}
+          onPrev={onPrev}
+        />
       </LazyStage>
 
-      <div className="player-ui">
-        <div className="player-track">
-          <b>{track.title}</b>
-          <span>{track.artist}</span>
-        </div>
-        <div className="player-bar">
-          <div className="player-bar-fill" style={{ width: `${(elapsed / track.duration) * 100}%` }} />
-        </div>
-        <div className="player-row">
-          <span className="player-time">{fmt(elapsed)}</span>
-          <button type="button" className="player-play" onClick={togglePlay} aria-label={isPlaying ? "Pause" : "Spel"}>
-            {isPlaying ? (
-              <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" /></svg>
-            ) : (
-              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 5.5v13l11-6.5-11-6.5Z" /></svg>
-            )}
-          </button>
-          <span className="player-time">{fmt(track.duration)}</span>
-        </div>
-      </div>
-
-      <button
-        type="button"
-        className={`stage-btn soundbtn${soundOn ? " on" : ""}`}
-        onClick={() => setSoundOn((s) => !s)}
-        aria-pressed={soundOn}
-        aria-label="Lyd"
-        title="Lyd"
-      >
-        {soundOn ? (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M4 9v6h4l5 4V5L8 9H4Z" />
-            <path d="M17 8.5a5 5 0 0 1 0 7" />
-          </svg>
-        ) : (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M4 9v6h4l5 4V5L8 9H4Z" />
-            <path d="M16 9.5 20.5 14M20.5 9.5 16 14" />
-          </svg>
+      <div className="spotify-card">
+        <div ref={embedRef} className="spotify-embed" />
+        {!ready && !failed && <div className="spotify-loading">Koplar til Spotify…</div>}
+        {failed && (
+          <div className="spotify-loading">
+            Fekk ikkje kontakt med Spotify —{" "}
+            <a href="https://open.spotify.com/playlist/37i9dQZF1DX4sWSpwq3LiO" target="_blank" rel="noopener">
+              opne i Spotify
+            </a>
+          </div>
         )}
-      </button>
-
+      </div>
     </div>
   )
 }

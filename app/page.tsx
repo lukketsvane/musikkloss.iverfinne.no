@@ -133,12 +133,16 @@ export default function Page() {
           <div className="two">
             <Reveal>
               <div className="k">styring</div>
-              <h2 className="serif">Same vri, ekte styring.</h2>
+              <h2 className="serif">Same vri, ekte Spotify.</h2>
               <p>
-                Ingen knappar, ingen app. Vri klossen til høgre so spelar musikken; vri han til
-                venstre so hoppar han vidare til neste spor. Eit lite trykk er pause.
+                Ingen knappar, ingen app. Vri klossen til høgre so spelar musikken; vri til venstre
+                so hoppar han vidare. Vipp han framover eller bakover for spor fram og tilbake. Eit
+                lite trykk er pause.
               </p>
-              <p>Prøv sjølv, under — same gest som den ekte klossen bruker.</p>
+              <p>
+                Prøv sjølv, under — vri og vipp klossen, so styrer du ein ekte Spotify-spelar. Same
+                gest som den ekte klossen bruker.
+              </p>
             </Reveal>
             <Reveal delay={120}>
               <GesturePlayer />
