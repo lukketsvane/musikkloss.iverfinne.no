@@ -22,7 +22,17 @@ const DIAG_MIN_DEG = 25 // drag angle from horizontal must fall in this band...
 const DIAG_MAX_DEG = 65 // ...to count as diagonal rather than turn/flip
 const BALANCE_DRAG_PX = 150 // px of diagonal drag for a full 0→1 preview
 const BALANCE_COMMIT_T = 0.55
-const BALANCE_ROLL_DEG = -38 // rolls (tips sideways) onto the rounded corner/edge
+// The shell's rounded feature is a single edge (not a vertical corner) running
+// along local Z, at local (+X, +Y) — measured directly off the mesh: every
+// other corner has a real vertex within ~2mm of its ideal sharp-box position,
+// but this one's nearest vertex is ~11-12mm away, i.e. the true surface there
+// is a wide bevel, not a point. -133.3deg is the exact roll (about world Z)
+// that aligns that corner's direction-from-centre with straight down.
+const BALANCE_ROLL_DEG = -133.3
+// generic per-frame grounding assumes a sharp box corner touches the floor;
+// this corner doesn't have one (see above) — pull the object down by
+// (roughly) the bevel's real depth so it doesn't float above its own surface
+const BALANCE_CONTACT_INSET_MM = 11.5
 const ROCK_AMPLITUDE = THREE.MathUtils.degToRad(2.2) // gentle "still balancing" wobble
 const ROCK_SPEED = 1.3
 
@@ -128,6 +138,14 @@ function Rig({ isPlaying, onTogglePlay, onPlay, onNext, onPrev, onBalanceChange 
     if (!g) return
     const d = drag.current
     let target = d && d.axis ? preview(d.axis, d.ang) : rest.current
+    // how far into the balanced pose the live orientation is right now — 0 at
+    // upright, 1 fully balanced — so the contact-point correction below can
+    // fade in/out with the same drag that's driving the rotation itself
+    let balanceBlend = balanced.current ? 1 : 0
+    if (d && d.axis === "balance") {
+      const t = THREE.MathUtils.clamp(d.ang, 0, 1)
+      balanceBlend = balanced.current ? 1 - t : t
+    }
     // a small continuous rock while resting balanced — it reads as still
     // finding its footing on the curve rather than a frozen prop
     if (!d && balanced.current) {
@@ -136,7 +154,10 @@ function Rig({ isPlaying, onTogglePlay, onPlay, onNext, onPrev, onBalanceChange 
     }
     live.current.slerp(target, EASE)
     g.quaternion.copy(live.current)
-    g.position.y = support(live.current, he)
+    // the balanced corner has no sharp box vertex in reality (it's a wide
+    // bevel) — support() alone would rest the object on that phantom ideal
+    // point, hovering it above where its actual rounded surface is
+    g.position.y = support(live.current, he) - BALANCE_CONTACT_INSET_MM * scale * balanceBlend
 
     if (ledMat.current) {
       const now = performance.now() / 1000
