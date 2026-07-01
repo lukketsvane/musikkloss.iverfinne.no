@@ -12,6 +12,7 @@ import {
 import { Suspense, useEffect, useMemo, useRef, useState } from "react"
 import * as THREE from "three"
 import { buildWalls, type Box, FLOOR, WALL_COL_HEIGHT } from "@/lib/layout"
+import { recentre } from "@/lib/gltf"
 import { PostFx } from "@/components/PostFx"
 
 const MODEL_URL = "/microbit_cube.glb"
@@ -96,25 +97,6 @@ function CameraRig({ half, explode }: { half: number; explode: boolean }) {
 }
 
 type CubeHandle = { radius: number }
-
-// Recentre + uniformly scale a clone of a GLTF scene so its largest dimension
-// equals `target`. Shared by the cube body and the real board model so both
-// go through the exact same (translate-then-scale-via-parent-group) math —
-// mutating rotation/scale on the same object you just recentred warps the
-// translation (T·R·S composition), so callers apply scale/rotation on a
-// WRAPPING group, never on the returned object itself.
-function recentre(scene: THREE.Object3D, target: number) {
-  const clone = scene.clone(true)
-  const bbox = new THREE.Box3().setFromObject(clone)
-  const size = new THREE.Vector3()
-  const center = new THREE.Vector3()
-  bbox.getSize(size)
-  bbox.getCenter(center)
-  const maxDim = Math.max(size.x, size.y, size.z) || 1
-  const s = target / maxDim
-  clone.position.sub(center)
-  return { object: clone, scale: s, size }
-}
 
 function Cube({
   half,

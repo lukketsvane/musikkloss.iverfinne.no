@@ -1,5 +1,7 @@
 import DetailStage from "@/components/DetailStage"
 import HeroStage from "@/components/HeroStage"
+import ColorPicker from "@/components/ColorPicker"
+import GesturePlayer from "@/components/GesturePlayer"
 
 export default function Page() {
   return (
@@ -90,6 +92,35 @@ export default function Page() {
                 </li>
               </ul>
             </div>
+          </div>
+        </section>
+
+        <section className="block">
+          <div className="two">
+            <div>
+              <div className="k">farge</div>
+              <h2 className="serif">Din eigen kloss.</h2>
+              <p>
+                Kvar kloss vert 3D-printa i PLA — same form, ulikt pigment. Drei han rundt og vel
+                fargen din.
+              </p>
+            </div>
+            <ColorPicker />
+          </div>
+        </section>
+
+        <section className="block">
+          <div className="two">
+            <div>
+              <div className="k">styring</div>
+              <h2 className="serif">Same vri, ekte styring.</h2>
+              <p>
+                Ingen knappar, ingen app. Vri klossen til høgre so spelar musikken; vri han til
+                venstre so hoppar han vidare til neste spor. Eit lite trykk er pause.
+              </p>
+              <p>Prøv sjølv, under — same gest som den ekte klossen bruker.</p>
+            </div>
+            <GesturePlayer />
           </div>
         </section>
       </main>
