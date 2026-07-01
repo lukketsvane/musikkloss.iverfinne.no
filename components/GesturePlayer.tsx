@@ -36,6 +36,9 @@ export default function GesturePlayer() {
   const [ready, setReady] = useState(false)
   const [failed, setFailed] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
+  const [shuffle, setShuffle] = useState(false)
+  const shuffleRef = useRef(false)
+  shuffleRef.current = shuffle
 
   // create the Spotify embed controller once (this component is not lazily
   // unmounted, so the controller persists for the page's lifetime)
@@ -92,6 +95,18 @@ export default function GesturePlayer() {
     }, 450)
   }, [])
 
+  // when balanced on its rounded edge, the cube is "shuffling" — skips pick a
+  // random track instead of the next/previous one in order, same as toggling
+  // shuffle on a real player
+  const pickIndex = useCallback((dir: 1 | -1) => {
+    if (shuffleRef.current && TRACKS.length > 1) {
+      let r = index.current
+      while (r === index.current) r = Math.floor(Math.random() * TRACKS.length)
+      return r
+    }
+    return index.current + dir
+  }, [])
+
   const onTogglePlay = useCallback(() => controller.current?.togglePlay(), [])
   const onPlay = useCallback(() => {
     try {
@@ -100,8 +115,9 @@ export default function GesturePlayer() {
       controller.current?.play()
     }
   }, [])
-  const onNext = useCallback(() => load(index.current + 1), [load])
-  const onPrev = useCallback(() => load(index.current - 1), [load])
+  const onNext = useCallback(() => load(pickIndex(1)), [load, pickIndex])
+  const onPrev = useCallback(() => load(pickIndex(-1)), [load, pickIndex])
+  const onBalanceChange = useCallback((balanced: boolean) => setShuffle(balanced), [])
 
   return (
     <div className="stage gesture-stage">
@@ -112,8 +128,19 @@ export default function GesturePlayer() {
           onPlay={onPlay}
           onNext={onNext}
           onPrev={onPrev}
+          onBalanceChange={onBalanceChange}
         />
       </LazyStage>
+
+      {shuffle && (
+        <span className="shuffle-badge">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 17h2.8c1 0 1.9-.5 2.5-1.4l5.4-8.2c.6-.9 1.5-1.4 2.5-1.4H20" />
+            <path d="M17 3l3 3-3 3M4 7h2.8c1 0 1.9.5 2.5 1.4l.7 1M17 21l3-3-3-3" />
+          </svg>
+          Tilfeldig
+        </span>
+      )}
 
       <div className="spotify-card">
         <div ref={embedRef} className="spotify-embed" />

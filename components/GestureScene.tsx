@@ -11,13 +11,26 @@ const MODEL_URL = "/microbit_cube.glb"
 const SIZE = 1.55
 const SENS = 0.011 // radians of turn/flip per pixel dragged
 const DEADZONE = 6 // px before a drag locks to an axis
-const TAP_PX = 8
 const TAP_MS = 240
 const COMMIT_DEG = 42 // past this, the drag commits a 90° step + fires an action
 const EASE = 0.18
 
+// a genuinely diagonal drag (neither mostly horizontal nor mostly vertical)
+// tips the cube up onto its one rounded edge instead of turning/flipping —
+// a distinct pose, toggled, not a 90° snap
+const DIAG_MIN_DEG = 25 // drag angle from horizontal must fall in this band...
+const DIAG_MAX_DEG = 65 // ...to count as diagonal rather than turn/flip
+const BALANCE_DRAG_PX = 150 // px of diagonal drag for a full 0→1 preview
+const BALANCE_COMMIT_T = 0.55
+const BALANCE_ROLL_DEG = -38 // rolls (tips sideways) onto the rounded corner/edge
+const ROCK_AMPLITUDE = THREE.MathUtils.degToRad(2.2) // gentle "still balancing" wobble
+const ROCK_SPEED = 1.3
+
 const WORLD_X = new THREE.Vector3(1, 0, 0)
 const WORLD_Y = new THREE.Vector3(0, 1, 0)
+const WORLD_Z = new THREE.Vector3(0, 0, 1)
+const IDENTITY_Q = new THREE.Quaternion()
+const BALANCE_Q = new THREE.Quaternion().setFromAxisAngle(WORLD_Z, THREE.MathUtils.degToRad(BALANCE_ROLL_DEG))
 
 // distance from the cube's centre down to the floor for a given (face-aligned)
 // orientation, so it always rests ON the surface as it turns and tips rather
@@ -34,9 +47,10 @@ type Gestures = {
   onPlay: () => void
   onNext: () => void
   onPrev: () => void
+  onBalanceChange: (balanced: boolean) => void
 }
 
-function Rig({ isPlaying, onTogglePlay, onPlay, onNext, onPrev }: Gestures) {
+function Rig({ isPlaying, onTogglePlay, onPlay, onNext, onPrev, onBalanceChange }: Gestures) {
   const gltf = useGLTF(MODEL_URL)
   const group = useRef<THREE.Group>(null)
   const camera = useThree((s) => s.camera)
@@ -49,10 +63,11 @@ function Rig({ isPlaying, onTogglePlay, onPlay, onNext, onPrev }: Gestures) {
   // preview (while dragging) or the committed rest (otherwise)
   const rest = useRef(new THREE.Quaternion())
   const live = useRef(new THREE.Quaternion())
+  const balanced = useRef(false)
   const drag = useRef<{
     x: number
     y: number
-    axis: null | "turn" | "flip"
+    axis: null | "turn" | "flip" | "balance"
     t: number
     ang: number
   } | null>(null)
@@ -94,9 +109,16 @@ function Rig({ isPlaying, onTogglePlay, onPlay, onNext, onPrev }: Gestures) {
     cam.updateProjectionMatrix()
   }, [camera, size, he])
 
-  // preview quaternion for the in-progress drag: a single-axis world rotation
-  // layered on the committed rest pose
-  const preview = (axis: "turn" | "flip", ang: number) => {
+  // preview quaternion for the in-progress drag: turn/flip layer a single-axis
+  // world rotation on the committed rest pose; balance slerps between the
+  // upright and balanced poses proportional to how far the diagonal drag has
+  // travelled (t: 0→1), toward whichever state the gesture is toggling to
+  const preview = (axis: "turn" | "flip" | "balance", ang: number) => {
+    if (axis === "balance") {
+      const from = balanced.current ? BALANCE_Q : IDENTITY_Q
+      const to = balanced.current ? IDENTITY_Q : BALANCE_Q
+      return from.clone().slerp(to, THREE.MathUtils.clamp(ang, 0, 1))
+    }
     const worldAxis = axis === "turn" ? WORLD_Y : WORLD_X
     return new THREE.Quaternion().setFromAxisAngle(worldAxis, ang).multiply(rest.current)
   }
@@ -105,7 +127,13 @@ function Rig({ isPlaying, onTogglePlay, onPlay, onNext, onPrev }: Gestures) {
     const g = group.current
     if (!g) return
     const d = drag.current
-    const target = d && d.axis ? preview(d.axis, d.ang) : rest.current
+    let target = d && d.axis ? preview(d.axis, d.ang) : rest.current
+    // a small continuous rock while resting balanced — it reads as still
+    // finding its footing on the curve rather than a frozen prop
+    if (!d && balanced.current) {
+      const wobble = Math.sin((performance.now() / 1000) * ROCK_SPEED) * ROCK_AMPLITUDE
+      target = new THREE.Quaternion().setFromAxisAngle(WORLD_X, wobble).multiply(target)
+    }
     live.current.slerp(target, EASE)
     g.quaternion.copy(live.current)
     g.position.y = support(live.current, he)
@@ -129,11 +157,20 @@ function Rig({ isPlaying, onTogglePlay, onPlay, onNext, onPrev }: Gestures) {
     const dy = e.clientY - d.y
     if (!d.axis) {
       if (Math.hypot(dx, dy) < DEADZONE) return
-      d.axis = Math.abs(dx) >= Math.abs(dy) ? "turn" : "flip"
+      const angleFromHorizontal = THREE.MathUtils.radToDeg(Math.atan2(Math.abs(dy), Math.abs(dx)))
+      if (angleFromHorizontal > DIAG_MIN_DEG && angleFromHorizontal < DIAG_MAX_DEG) {
+        d.axis = "balance"
+      } else {
+        d.axis = Math.abs(dx) >= Math.abs(dy) ? "turn" : "flip"
+      }
     }
-    // turn: drag right = +yaw; flip: drag down = tip forward (+pitch about world X)
-    const px = d.axis === "turn" ? dx : dy
-    d.ang = THREE.MathUtils.clamp(px * SENS, -Math.PI * 0.7, Math.PI * 0.7)
+    if (d.axis === "balance") {
+      d.ang = THREE.MathUtils.clamp(Math.hypot(dx, dy) / BALANCE_DRAG_PX, 0, 1.15)
+    } else {
+      // turn: drag right = +yaw; flip: drag down = tip forward (+pitch about world X)
+      const px = d.axis === "turn" ? dx : dy
+      d.ang = THREE.MathUtils.clamp(px * SENS, -Math.PI * 0.7, Math.PI * 0.7)
+    }
   }
   const onUp = () => {
     const d = drag.current
@@ -142,6 +179,14 @@ function Rig({ isPlaying, onTogglePlay, onPlay, onNext, onPrev }: Gestures) {
     const held = performance.now() - d.t
     if (!d.axis) {
       if (held < TAP_MS) onTogglePlay()
+      return
+    }
+    if (d.axis === "balance") {
+      if (d.ang >= BALANCE_COMMIT_T) {
+        balanced.current = !balanced.current
+        rest.current = balanced.current ? BALANCE_Q.clone() : IDENTITY_Q.clone()
+        onBalanceChange(balanced.current)
+      }
       return
     }
     const deg = THREE.MathUtils.radToDeg(d.ang)
