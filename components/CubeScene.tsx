@@ -12,12 +12,9 @@ import {
 import { Suspense, useEffect, useMemo, useRef, useState } from "react"
 import * as THREE from "three"
 import { buildWalls, type Box, FLOOR, WALL_COL_HEIGHT } from "@/lib/layout"
-import { recentre } from "@/lib/gltf"
 import { PostFx } from "@/components/PostFx"
 
 const MODEL_URL = "/microbit_cube.glb"
-const BOARD_URL = "/microbit_board.glb"
-const DRACO_PATH = "/draco/"
 
 const G = 22 // gravity strength
 const SIZE = 1.4 // cube's largest dimension, as a multiple of the framed half-width
@@ -32,8 +29,6 @@ const BODY_KINEMATIC_POSITION = 2
 // proportional across screen sizes), in the model's own recentred local space
 const EXPLODE_SHELL_Y = 0.85
 const EXPLODE_BASE_Y = -0.28
-const EXPLODE_BOARD_Y = 0.32
-const EXPLODE_BOARD_Z = 1.5
 const EXPLODE_EASE = 0.09
 
 // drag / carry servo constants (ported from the klossete engine)
@@ -108,7 +103,6 @@ function Cube({
   onGrab: (body: RapierRigidBody, point: THREE.Vector3, h: CubeHandle) => void
 }) {
   const gltf = useGLTF(MODEL_URL)
-  const boardGltf = useGLTF(BOARD_URL, DRACO_PATH)
 
   // Pull the named parts (shell / base / board placeholder / led_on) out of
   // the cube clone so each can be offset independently for the exploded view.
@@ -168,37 +162,6 @@ function Cube({
     return { parts: found, meshScale: s, halfExtents: he }
   }, [gltf.scene, half])
 
-  // The real, downloaded micro:bit board — sized as a fraction of the shell's
-  // own VERIFIED rendered width (halfExtents, already proven correct — it
-  // drives the physics collider), rather than re-deriving through the raw
-  // CAD file's mm units, which repeatedly produced the wrong on-screen size.
-  // Revealed only once the cube is pulled apart.
-  const board = useMemo(() => {
-    const target = halfExtents.x * 2 * 0.8
-    const { object, scale: s } = recentre(boardGltf.scene, target)
-    object.traverse((child) => {
-      const mesh = child as THREE.Mesh
-      if (!mesh.isMesh) return
-      mesh.castShadow = true
-      mesh.receiveShadow = true
-      // sits inside the shell's footprint even fully "exploded" at a modest
-      // offset — draw on top regardless of depth so it doesn't need a huge,
-      // perspective-distorting push forward to clear the shell's occlusion
-      const mat = (mesh.material as THREE.MeshStandardMaterial).clone()
-      mat.depthTest = false
-      // the source PCB material is authored full-metal (metalnessFactor
-      // defaults to 1 with no factor set) — correct with an HDR environment,
-      // but this scene has none, so under plain directional lights a true
-      // metal reads near-black except at exact specular angles. Clamp it
-      // toward a coated/diffuse board finish so it actually catches light.
-      mat.metalness = Math.min(mat.metalness, 0.3)
-      mat.roughness = Math.max(mat.roughness * 0.7, 0.35)
-      mesh.material = mat
-      mesh.renderOrder = 9
-    })
-    return { object, scale: s }
-  }, [boardGltf.scene, halfExtents])
-
   const ref = useRef<RapierRigidBody>(null)
   const handle: CubeHandle = useMemo(
     () => ({ radius: Math.hypot(halfExtents.x, halfExtents.z) }),
@@ -231,7 +194,6 @@ function Cube({
   const explode = useRef(0)
   const shellRef = useRef<THREE.Group>(null)
   const baseRef = useRef<THREE.Group>(null)
-  const boardRef = useRef<THREE.Group>(null)
 
   useFrame(() => {
     const target = explodeTarget ? 1 : 0
@@ -247,11 +209,6 @@ function Cube({
       const on = e > 0.08
       if (mat.depthTest !== !on) mat.depthTest = !on
       ;(parts.base as THREE.Mesh).renderOrder = on ? 8 : 0
-    }
-    if (boardRef.current) {
-      boardRef.current.position.set(0, EXPLODE_BOARD_Y * half * e, EXPLODE_BOARD_Z * half * e)
-      const k = THREE.MathUtils.smoothstep(e, 0.15, 0.65)
-      boardRef.current.scale.setScalar(k)
     }
   })
 
@@ -278,11 +235,6 @@ function Cube({
       </group>
       <group ref={baseRef} onPointerDown={onPointerDown}>
         <group scale={meshScale}>{parts.base && <primitive object={parts.base} dispose={null} />}</group>
-      </group>
-      <group ref={boardRef} scale={0}>
-        <group scale={board.scale} rotation={[Math.PI / 2, 0, 0]}>
-          <primitive object={board.object} dispose={null} />
-        </group>
       </group>
     </RigidBody>
   )
@@ -567,11 +519,6 @@ function Scene({ half, tilt, explode }: { half: number; tilt: boolean; explode: 
         <orthographicCamera attach="shadow-camera" args={[-shadowSpan, shadowSpan, shadowSpan, -shadowSpan, 1, 40]} />
       </directionalLight>
       <directionalLight position={[6, 5, 4]} intensity={0.85} color="#bcd2ff" />
-      {/* front fill for the exploded board's forward-facing side — the overhead
-          key light can't reach a near-vertical face, and a point light close
-          enough to help hotspots badly at this scale; a low directional has no
-          falloff, so it lights the standing board evenly instead */}
-      <directionalLight position={[0.5, 2, 7]} intensity={1.1} color="#eef1ff" />
 
       {/* floor (receives the cast shadow) */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
@@ -625,4 +572,3 @@ export default function CubeScene({ tilt = false, explode = false }: { tilt?: bo
 }
 
 useGLTF.preload(MODEL_URL)
-useGLTF.preload(BOARD_URL, DRACO_PATH)
