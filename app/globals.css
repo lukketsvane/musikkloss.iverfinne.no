@@ -94,14 +94,16 @@ section.block{padding:66px 0; border-top:1px solid var(--line)}
 .swatch:hover{transform:scale(1.08)}
 .swatch.on{box-shadow:0 0 0 2px var(--paper), 0 0 0 4px var(--ink)}
 
-/* gesture player — cube gestures over a real Spotify embed */
-.gesture-canvas-layer{position:absolute; inset:0}
-.gesture-stage canvas{cursor:grab}
-.spotify-card{position:absolute; left:14px; right:14px; bottom:14px; z-index:2; border-radius:14px;
+/* gesture player — the cube fills a tall canvas; the compact Spotify player
+   sits below it in flow so the two never overlap */
+.gesture-stage{aspect-ratio:auto; display:block}
+.gesture-canvas-layer{position:relative; display:block; width:100%; aspect-ratio:3/4}
+.gesture-canvas-layer canvas{position:absolute; inset:0; cursor:grab}
+.spotify-card{position:relative; margin:0 12px 12px; border-radius:14px;
   overflow:hidden; border:1px solid var(--line); background:color-mix(in srgb, var(--paper) 88%, transparent)}
 .spotify-embed{min-height:80px}
 .spotify-embed iframe{display:block; border:0; border-radius:13px}
-.spotify-loading{padding:22px 16px; font-size:13px; color:var(--muted); text-align:center}
+.spotify-loading{padding:20px 16px; font-size:13px; color:var(--muted); text-align:center}
 
 footer{padding:40px 0 60px; border-top:1px solid var(--line); color:var(--muted); font-size:14px}
 footer .wrap{display:flex; justify-content:space-between; flex-wrap:wrap; gap:14px}
@@ -113,5 +115,7 @@ footer a:hover{color:var(--ink)}
   .order2{order:-1}
   .cols{grid-template-columns:1fr 1fr}
   .two{grid-template-columns:1fr; gap:26px}
+  /* on a phone give the cube most of the screen so the player never crowds it */
+  .gesture-canvas-layer{aspect-ratio:auto; height:72vh}
 }
 @media(max-width:520px){ .cols{grid-template-columns:1fr} }

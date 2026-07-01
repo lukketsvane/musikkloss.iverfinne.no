@@ -30,6 +30,12 @@ const BODY_KINEMATIC_POSITION = 2
 const EXPLODE_SHELL_Y = 0.85
 const EXPLODE_BASE_Y = -0.28
 const EXPLODE_EASE = 0.09
+// the board's LED matrix is authored ~8mm behind the enclosure's front face,
+// whose window is a moulded (solid) dot pattern — so the LEDs sit hidden
+// behind solid material. Float them forward onto that front surface (model
+// units) so they read as the lit window: glowing from the front, still
+// occluded from behind by the solid case (no clip-through).
+const LED_FORWARD = 8
 
 // drag / carry servo constants (ported from the klossete engine)
 const GRAB_RATE = 9
@@ -133,30 +139,21 @@ function Cube({
       if (!mesh.isMesh) return
       mesh.castShadow = true
       mesh.receiveShadow = true
-      // the lit LED dots sit recessed in the shell, where screen-space AO
-      // darkens them despite being emissive — boost + don't self-shadow them
-      // so they read clearly instead of disappearing into the crevice shading
+      // LEDs sit on the board behind the enclosure's window — boost their
+      // glow but keep normal depth testing so they read as lights shining
+      // through the window and are properly occluded by the solid case,
+      // never clipping through it.
       if (mesh.name === "led_on") {
         mesh.castShadow = false
         const mat = (mesh.material as THREE.MeshStandardMaterial).clone()
-        mat.emissiveIntensity = 9
-        mat.depthTest = false
-        mat.side = THREE.DoubleSide
+        mat.emissiveIntensity = 12
         mesh.material = mat
-        mesh.renderOrder = 10
-      }
-      // base sits tucked under the shell's own moulded lower trim — once
-      // pulled apart it needs to draw on top to stay visible instead of
-      // disappearing behind that trim geometry. Cloned (not shared) so this
-      // can be toggled on only while exploding, in the useFrame below —
-      // forcing it on permanently would let it wrongly poke through the
-      // shell while still assembled.
-      if (mesh.name === "base") {
-        mesh.material = (mesh.material as THREE.MeshStandardMaterial).clone()
       }
     })
     // recentre each extracted part directly (see note above)
     Object.values(found).forEach((part) => part.position.sub(center))
+    // float the LEDs forward onto the front window surface
+    if (found.led_on) found.led_on.position.z += LED_FORWARD
 
     const he = size.clone().multiplyScalar(s / 2)
     return { parts: found, meshScale: s, halfExtents: he }
@@ -202,14 +199,10 @@ function Cube({
     // these groups sit OUTSIDE the meshScale-scaled geometry group (siblings,
     // not children of it) so the offsets are in final scene units — applying
     // them inside the scaled group would shrink the motion to almost nothing
+    // shell lifts up, baseplate drops down; the board (with its LEDs) stays
+    // put in the middle, revealed as the case pulls apart
     if (shellRef.current) shellRef.current.position.set(0, EXPLODE_SHELL_Y * half * e, 0)
     if (baseRef.current) baseRef.current.position.set(0, EXPLODE_BASE_Y * half * e, 0)
-    if (parts.base && (parts.base as THREE.Mesh).isMesh) {
-      const mat = (parts.base as THREE.Mesh).material as THREE.MeshStandardMaterial
-      const on = e > 0.08
-      if (mat.depthTest !== !on) mat.depthTest = !on
-      ;(parts.base as THREE.Mesh).renderOrder = on ? 8 : 0
-    }
   })
 
   return (
@@ -227,6 +220,7 @@ function Cube({
       ccd
     >
       <CuboidCollider args={[halfExtents.x, halfExtents.y, halfExtents.z]} />
+      {/* shell + its lit window ride together */}
       <group ref={shellRef} onPointerDown={onPointerDown}>
         <group scale={meshScale}>
           {parts.shell && <primitive object={parts.shell} dispose={null} />}
@@ -235,6 +229,10 @@ function Cube({
       </group>
       <group ref={baseRef} onPointerDown={onPointerDown}>
         <group scale={meshScale}>{parts.base && <primitive object={parts.base} dispose={null} />}</group>
+      </group>
+      {/* board stays centred; the case separates around it */}
+      <group onPointerDown={onPointerDown}>
+        <group scale={meshScale}>{parts.board && <primitive object={parts.board} dispose={null} />}</group>
       </group>
     </RigidBody>
   )

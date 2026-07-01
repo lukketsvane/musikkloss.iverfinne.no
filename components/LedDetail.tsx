@@ -5,6 +5,7 @@ import { useGLTF } from "@react-three/drei"
 import { Suspense, useMemo, useRef } from "react"
 import * as THREE from "three"
 import { PostFx } from "@/components/PostFx"
+import { LED_FORWARD_MM } from "@/lib/gltf"
 
 const MODEL_URL = "/microbit_cube.glb"
 const HERO_YAW = -0.3 // same resting orientation as the hero cube — reads as the same object
@@ -13,8 +14,8 @@ const SIZE = 1.7 // normalised model size, in this scene's own world units
 // A slow, gentle brightening of the lit LEDs — literally shows "glør gjennom
 // eit 1,2 mm skin": more lamp than screen, not an animated graphic.
 const PULSE_SPEED = 0.7
-const PULSE_MIN = 0.55
-const PULSE_MAX = 1.5
+const PULSE_MIN = 6
+const PULSE_MAX = 16
 
 function LedRig() {
   const gltf = useGLTF(MODEL_URL)
@@ -49,13 +50,12 @@ function LedRig() {
         const mat = (mesh.material as THREE.MeshStandardMaterial).clone() // animate independently of the hero's material
         mesh.material = mat
         if (mesh.name === "led_on") {
-          // the lit dots sit recessed behind the shell's surface (not a true
-          // through-hole), occluding them outright — draw on top regardless
-          // of depth, same fix as the hero cube
+          // LEDs sit ~8mm behind the enclosure's window (a moulded, not
+          // through-hole, dot pattern) — float them forward onto the front
+          // surface so they read as lights shining through the window with
+          // normal depth testing, never clipping through the solid case
           mesh.castShadow = false
-          mat.depthTest = false
-          mat.side = THREE.DoubleSide
-          mesh.renderOrder = 10
+          mesh.position.z += LED_FORWARD_MM
           ledMat.current = mat
         }
         const b = new THREE.Box3().setFromObject(mesh)

@@ -4,7 +4,7 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber"
 import { useGLTF } from "@react-three/drei"
 import { Suspense, useMemo, useRef } from "react"
 import * as THREE from "three"
-import { recentre } from "@/lib/gltf"
+import { recentre, LED_FORWARD_MM } from "@/lib/gltf"
 import { PostFx } from "@/components/PostFx"
 
 const MODEL_URL = "/microbit_cube.glb"
@@ -67,10 +67,9 @@ function Rig({ isPlaying, onTogglePlay, onPlay, onNext, onPrev }: Gestures) {
       if (mesh.name === "led_on") {
         mesh.castShadow = false
         const mat = (mesh.material as THREE.MeshStandardMaterial).clone()
-        mat.depthTest = false
-        mat.side = THREE.DoubleSide
+        mat.emissiveIntensity = 12
         mesh.material = mat
-        mesh.renderOrder = 10
+        mesh.position.z += LED_FORWARD_MM
         ledMat.current = mat
       }
     })
@@ -113,7 +112,7 @@ function Rig({ isPlaying, onTogglePlay, onPlay, onNext, onPrev }: Gestures) {
 
     if (ledMat.current) {
       const now = performance.now() / 1000
-      const lvl = playing.current ? 0.55 + 0.5 * (0.5 + 0.5 * Math.sin(now * 2.1)) : 0.15
+      const lvl = playing.current ? 8 + 6 * (0.5 + 0.5 * Math.sin(now * 2.1)) : 3
       ledMat.current.emissiveIntensity += (lvl - ledMat.current.emissiveIntensity) * 0.08
     }
   })

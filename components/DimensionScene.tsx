@@ -4,7 +4,7 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber"
 import { useGLTF, Line, Html } from "@react-three/drei"
 import { Suspense, useEffect, useMemo, useRef } from "react"
 import * as THREE from "three"
-import { recentre } from "@/lib/gltf"
+import { recentre, LED_FORWARD_MM } from "@/lib/gltf"
 import { PostFx } from "@/components/PostFx"
 
 const MODEL_URL = "/microbit_cube.glb"
@@ -95,10 +95,9 @@ function Rig() {
       if (mesh.name === "led_on") {
         mesh.castShadow = false
         const mat = (mesh.material as THREE.MeshStandardMaterial).clone()
-        mat.depthTest = false
-        mat.side = THREE.DoubleSide
+        mat.emissiveIntensity = 12
         mesh.material = mat
-        mesh.renderOrder = 10
+        mesh.position.z += LED_FORWARD_MM
       }
     })
     // half-extents of the scaled model (its bbox is axis-aligned before yaw)

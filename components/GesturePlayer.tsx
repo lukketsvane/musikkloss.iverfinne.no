@@ -45,7 +45,7 @@ export default function GesturePlayer() {
       if (cancelled || !embedRef.current) return
       IFrameAPI.createController(
         embedRef.current,
-        { uri: TRACKS[0], width: "100%", height: "152" },
+        { uri: TRACKS[0], width: "100%", height: "80" },
         (ctrl: any) => {
           controller.current = ctrl
           ctrl.addListener("ready", () => setReady(true))
