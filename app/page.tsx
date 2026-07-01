@@ -2,6 +2,7 @@ import DetailStage from "@/components/DetailStage"
 import HeroStage from "@/components/HeroStage"
 import ColorPicker from "@/components/ColorPicker"
 import GesturePlayer from "@/components/GesturePlayer"
+import { Reveal } from "@/components/Reveal"
 
 export default function Page() {
   return (
@@ -50,7 +51,7 @@ export default function Page() {
 
         <section className="block">
           <div className="two">
-            <div>
+            <Reveal>
               <div className="k">kropp</div>
               <h2 className="serif">Ein massiv liten ting.</h2>
               <p>
@@ -62,8 +63,8 @@ export default function Page() {
                 Brettet sit ståande med 0,8 mm klaring og 5 mm luft til frontveggen så knappane går
                 klar. USB-C ut høgre side. Skrur saman med ei baseplate og fire føter.
               </p>
-            </div>
-            <div className="detail-col">
+            </Reveal>
+            <Reveal delay={120} className="detail-col">
               <DetailStage />
               <ul className="spec">
                 <li>
@@ -91,27 +92,29 @@ export default function Page() {
                   <span>FDM · kobolt PLA</span>
                 </li>
               </ul>
-            </div>
+            </Reveal>
           </div>
         </section>
 
         <section className="block">
           <div className="two">
-            <div>
+            <Reveal>
               <div className="k">farge</div>
               <h2 className="serif">Din eigen kloss.</h2>
               <p>
                 Kvar kloss vert 3D-printa i PLA — same form, ulikt pigment. Drei han rundt og vel
                 fargen din.
               </p>
-            </div>
-            <ColorPicker />
+            </Reveal>
+            <Reveal delay={120}>
+              <ColorPicker />
+            </Reveal>
           </div>
         </section>
 
         <section className="block">
           <div className="two">
-            <div>
+            <Reveal>
               <div className="k">styring</div>
               <h2 className="serif">Same vri, ekte styring.</h2>
               <p>
@@ -119,8 +122,10 @@ export default function Page() {
                 venstre so hoppar han vidare til neste spor. Eit lite trykk er pause.
               </p>
               <p>Prøv sjølv, under — same gest som den ekte klossen bruker.</p>
-            </div>
-            <GesturePlayer />
+            </Reveal>
+            <Reveal delay={120}>
+              <GesturePlayer />
+            </Reveal>
           </div>
         </section>
       </main>

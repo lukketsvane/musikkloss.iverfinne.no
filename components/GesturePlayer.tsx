@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic"
 import { useEffect, useState } from "react"
 import { useAmbientSynth } from "@/components/useAmbientSynth"
+import { LazyStage } from "@/components/LazyStage"
 
 const GestureScene = dynamic(() => import("@/components/GestureScene"), { ssr: false })
 
@@ -53,7 +54,9 @@ export default function GesturePlayer() {
 
   return (
     <div className="stage gesture-stage">
-      <GestureScene isPlaying={isPlaying} onTogglePlay={togglePlay} onPlay={play} onSkip={skip} />
+      <LazyStage className="gesture-canvas-layer">
+        <GestureScene isPlaying={isPlaying} onTogglePlay={togglePlay} onPlay={play} onSkip={skip} />
+      </LazyStage>
 
       <div className="player-ui">
         <div className="player-track">

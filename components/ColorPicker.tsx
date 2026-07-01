@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic"
 import { useState } from "react"
 import { COLORS } from "@/components/ColorScene"
+import { LazyStage } from "@/components/LazyStage"
 
 const ColorScene = dynamic(() => import("@/components/ColorScene"), { ssr: false })
 
@@ -11,9 +12,9 @@ export default function ColorPicker() {
 
   return (
     <div className="detail-col">
-      <div className="detail-stage color-stage">
+      <LazyStage className="detail-stage color-stage">
         <ColorScene colorId={colorId} />
-      </div>
+      </LazyStage>
       <div className="swatches">
         {COLORS.map((c) => (
           <button
