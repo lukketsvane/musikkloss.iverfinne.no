@@ -75,6 +75,7 @@ export default function GesturePlayer() {
 
   const onTogglePlay = useCallback(() => backendRef.current?.togglePlay(), [])
   const onPlay = useCallback(() => backendRef.current?.resume(), [])
+  const onPause = useCallback(() => backendRef.current?.pause(), [])
   const onNext = useCallback(() => load(pickIndex(1)), [load, pickIndex])
   const onPrev = useCallback(() => load(pickIndex(-1)), [load, pickIndex])
   const onBalanceChange = useCallback((balanced: boolean) => setShuffle(balanced), [])
@@ -91,6 +92,7 @@ export default function GesturePlayer() {
           isPlaying={isPlaying}
           onTogglePlay={onTogglePlay}
           onPlay={onPlay}
+          onPause={onPause}
           onNext={onNext}
           onPrev={onPrev}
           onBalanceChange={onBalanceChange}

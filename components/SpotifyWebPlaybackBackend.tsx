@@ -74,6 +74,7 @@ export default function SpotifyWebPlaybackBackend({
               })
             }
           },
+          pause: () => player.pause(),
           freshPlay: (uri) => {
             hasStarted = true
             webApi(`/me/player/play?device_id=${deviceId}`, {

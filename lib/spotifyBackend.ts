@@ -5,6 +5,7 @@
 export type PlaybackBackend = {
   loadAndPlay: (uri: string) => void
   resume: () => void
+  pause: () => void
   freshPlay: (uri: string) => void
   togglePlay: () => void
 }

@@ -67,6 +67,7 @@ export default function SpotifyEmbedBackend({
                   controller.play()
                 }
               },
+              pause: () => controller.pause(),
               freshPlay: (uri) => {
                 hasStarted = true
                 pendingUri = null

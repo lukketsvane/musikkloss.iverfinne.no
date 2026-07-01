@@ -55,12 +55,18 @@ type Gestures = {
   isPlaying: boolean
   onTogglePlay: () => void
   onPlay: () => void
+  onPause: () => void
   onNext: () => void
   onPrev: () => void
   onBalanceChange: (balanced: boolean) => void
 }
 
-function Rig({ isPlaying, onTogglePlay, onPlay, onNext, onPrev, onBalanceChange }: Gestures) {
+// the LED face's outward normal is the model's local +Z; when the cube is laid
+// flat with that face pointing at the sky this dotted against world-up is ~1
+const LED_NORMAL = WORLD_Z
+const FACE_UP_DOT = 0.8 // committed pose counts as "lying face-up" past this
+
+function Rig({ isPlaying, onTogglePlay, onPlay, onPause, onNext, onPrev, onBalanceChange }: Gestures) {
   const gltf = useGLTF(MODEL_URL)
   const group = useRef<THREE.Group>(null)
   const camera = useThree((s) => s.camera)
@@ -74,6 +80,7 @@ function Rig({ isPlaying, onTogglePlay, onPlay, onNext, onPrev, onBalanceChange 
   const rest = useRef(new THREE.Quaternion())
   const live = useRef(new THREE.Quaternion())
   const balanced = useRef(false)
+  const faceUp = useRef(false)
   const drag = useRef<{
     x: number
     y: number
@@ -217,10 +224,20 @@ function Rig({ isPlaying, onTogglePlay, onPlay, onNext, onPrev, onBalanceChange 
       rest.current = new THREE.Quaternion()
         .setFromAxisAngle(worldAxis, (Math.PI / 2) * step)
         .multiply(rest.current)
-      // map the committed step to a playback action, mirroring the product's
-      // own vocabulary: turn right = play, turn left = skip; flip = prev/next
-      if (d.axis === "turn") step > 0 ? onPlay() : onNext()
-      else step > 0 ? onNext() : onPrev()
+      // laying the cube flat with the LED face to the sky is "set it down" —
+      // that pose pauses, taking priority over the turn/flip action that got
+      // it there. only fires on entering the pose, not while already resting in it
+      const nowUp = LED_NORMAL.clone().applyQuaternion(rest.current).y > FACE_UP_DOT
+      if (nowUp && !faceUp.current) {
+        onPause()
+      } else if (d.axis === "turn") {
+        // turn right = play, turn left = skip
+        step > 0 ? onPlay() : onNext()
+      } else {
+        // flip = prev/next through the tracklist
+        step > 0 ? onNext() : onPrev()
+      }
+      faceUp.current = nowUp
     }
   }
 
