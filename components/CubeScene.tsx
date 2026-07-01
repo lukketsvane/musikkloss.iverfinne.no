@@ -31,8 +31,8 @@ const BODY_KINEMATIC_POSITION = 2
 // proportional across screen sizes), in the model's own recentred local space
 const EXPLODE_SHELL_Y = 0.85
 const EXPLODE_BASE_Y = -0.7
-const EXPLODE_BOARD_Y = 0.42
-const EXPLODE_BOARD_Z = 3.4
+const EXPLODE_BOARD_Y = 0.35
+const EXPLODE_BOARD_Z = 1.9
 const EXPLODE_EASE = 0.09
 
 // drag / carry servo constants (ported from the klossete engine)
@@ -78,7 +78,7 @@ function CameraRig({ half, explode }: { half: number; explode: boolean }) {
     const halfV = Math.tan((fov / 2) * (Math.PI / 180))
     // breathing room so the cube + its shadow never crowd the frame edge —
     // wider once exploded, since the parts spread well beyond the resting silhouette
-    const margin = explode ? 3.2 : 1.28
+    const margin = explode ? 2.3 : 1.28
     const need = (half * margin) / Math.min(1, aspect) // frame ±half (+margin)
     const dist = need / halfV + 0.3
     const el = THREE.MathUtils.degToRad(33) // 0 = side-on, 90 = top-down — a calmer, more level product angle
@@ -176,19 +176,29 @@ function Cube({
     return { parts: found, meshScale: s, halfExtents: he }
   }, [gltf.scene, half])
 
-  // The real, downloaded micro:bit board — normalised to a legible size (not
-  // forced to the tiny placeholder footprint, which is just an abstracted
-  // stand-in) and revealed only once the cube is pulled apart.
+  // The real, downloaded micro:bit board — sized through the SAME mm-to-
+  // scene-unit factor as the shell/base (meshScale), using the CAD model's
+  // actual long-edge length (52mm), so it reads at its true size relative to
+  // the enclosure instead of an arbitrary fraction of the framing constant.
+  // Revealed only once the cube is pulled apart.
+  const BOARD_LONG_EDGE_MM = 48
   const board = useMemo(() => {
-    const { object, scale: s } = recentre(boardGltf.scene, half * SIZE * 0.78)
+    const { object, scale: s } = recentre(boardGltf.scene, meshScale * BOARD_LONG_EDGE_MM)
     object.traverse((child) => {
       const mesh = child as THREE.Mesh
       if (!mesh.isMesh) return
       mesh.castShadow = true
       mesh.receiveShadow = true
+      // sits inside the shell's footprint even fully "exploded" at a modest
+      // offset — draw on top regardless of depth so it doesn't need a huge,
+      // perspective-distorting push forward to clear the shell's occlusion
+      const mat = (mesh.material as THREE.MeshStandardMaterial).clone()
+      mat.depthTest = false
+      mesh.material = mat
+      mesh.renderOrder = 9
     })
     return { object, scale: s }
-  }, [boardGltf.scene, half])
+  }, [boardGltf.scene, meshScale])
 
   const ref = useRef<RapierRigidBody>(null)
   const handle: CubeHandle = useMemo(
