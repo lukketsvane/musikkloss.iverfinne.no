@@ -69,16 +69,19 @@ function Turntable({ colorId }: { colorId: string }) {
     const cam = camera as THREE.PerspectiveCamera
     cam.fov = 30
     const halfV = Math.tan((cam.fov / 2) * (Math.PI / 180))
-    const half = SIZE * 0.6
-    const need = (half * 1.05) / Math.min(1, aspect)
+    // frame the cube's full height (it stands from y=0 to y=2*halfHeight) plus
+    // margin — this stage is landscape (4:3), so the vertical extent is the
+    // binding constraint; too-small a frame here crops the rounded top
+    const half = halfHeight * 1.5
+    const need = (half * 1.12) / Math.min(1, aspect)
     const dist = need / halfV + 0.2
-    const el = THREE.MathUtils.degToRad(23)
-    cam.position.set(0, Math.sin(el) * dist, Math.cos(el) * dist)
+    const el = THREE.MathUtils.degToRad(20)
+    cam.position.set(0, halfHeight + Math.sin(el) * dist, Math.cos(el) * dist)
     cam.up.set(0, 1, 0)
     cam.near = 0.1
     cam.far = 100
     cam.aspect = aspect
-    cam.lookAt(0, halfHeight * 0.5, 0)
+    cam.lookAt(0, halfHeight, 0)
     cam.updateProjectionMatrix()
   }, [camera, size, halfHeight])
 

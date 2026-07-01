@@ -97,7 +97,6 @@ export default function GesturePlayer() {
         )}
       </button>
 
-      <p className="gesture-hint">Vri klossen til høgre for å spela, til venstre for å hoppa vidare. Trykk for pause.</p>
     </div>
   )
 }

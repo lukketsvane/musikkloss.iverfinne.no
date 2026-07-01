@@ -100,8 +100,6 @@ section.block{padding:66px 0; border-top:1px solid var(--line)}
 .player-play svg{width:18px; height:18px}
 .soundbtn{bottom:auto; top:14px; right:14px; left:auto}
 .soundbtn.on{color:var(--cobalt)}
-.gesture-hint{position:absolute; top:14px; left:14px; right:60px; z-index:2; margin:0;
-  font-size:12px; color:var(--muted); line-height:1.4}
 
 footer{padding:40px 0 60px; border-top:1px solid var(--line); color:var(--muted); font-size:14px}
 footer .wrap{display:flex; justify-content:space-between; flex-wrap:wrap; gap:14px}
