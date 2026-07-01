@@ -15,10 +15,25 @@ import { buildWalls, type Box, FLOOR, WALL_COL_HEIGHT } from "@/lib/layout"
 import { PostFx } from "@/components/PostFx"
 
 const MODEL_URL = "/microbit_cube.glb"
+const BOARD_URL = "/microbit_board.glb"
+const DRACO_PATH = "/draco/"
 
 const G = 22 // gravity strength
 const SIZE = 1.4 // cube's largest dimension, as a multiple of the framed half-width
 const HERO_YAW = -0.42 // resting yaw that presents the speaker face + rounded top
+
+// rapier RigidBodyType values (Dynamic / KinematicPositionBased) — frozen in
+// place while exploded so parts can fly apart without gravity/throws fighting it
+const BODY_DYNAMIC = 0
+const BODY_KINEMATIC_POSITION = 2
+
+// how far each part flies apart at full explode (scaled by `half` so it stays
+// proportional across screen sizes), in the model's own recentred local space
+const EXPLODE_SHELL_Y = 0.85
+const EXPLODE_BASE_Y = -0.7
+const EXPLODE_BOARD_Y = 0.42
+const EXPLODE_BOARD_Z = 3.4
+const EXPLODE_EASE = 0.09
 
 // drag / carry servo constants (ported from the klossete engine)
 const GRAB_RATE = 9
@@ -53,7 +68,7 @@ function useViewHalf() {
 // Angled hero camera: looks down at the origin from the front so the cube's
 // rounded top and the speaker face both read. The cube is centred, so it is
 // always in frame — framed tight so the cube reads big.
-function CameraRig({ half }: { half: number }) {
+function CameraRig({ half, explode }: { half: number; explode: boolean }) {
   const camera = useThree((s) => s.camera)
   const size = useThree((s) => s.size)
   useEffect(() => {
@@ -61,7 +76,9 @@ function CameraRig({ half }: { half: number }) {
     const aspect = size.width / size.height
     const fov = 32
     const halfV = Math.tan((fov / 2) * (Math.PI / 180))
-    const margin = 1.28 // breathing room so the cube + its shadow never crowd the frame edge
+    // breathing room so the cube + its shadow never crowd the frame edge —
+    // wider once exploded, since the parts spread well beyond the resting silhouette
+    const margin = explode ? 3.2 : 1.28
     const need = (half * margin) / Math.min(1, aspect) // frame ±half (+margin)
     const dist = need / halfV + 0.3
     const el = THREE.MathUtils.degToRad(33) // 0 = side-on, 90 = top-down — a calmer, more level product angle
@@ -73,44 +90,105 @@ function CameraRig({ half }: { half: number }) {
     cam.aspect = aspect
     cam.lookAt(0, half * 0.22, 0)
     cam.updateProjectionMatrix()
-  }, [camera, size, half])
+  }, [camera, size, half, explode])
   return null
 }
 
 type CubeHandle = { radius: number }
 
+// Recentre + uniformly scale a clone of a GLTF scene so its largest dimension
+// equals `target`. Shared by the cube body and the real board model so both
+// go through the exact same (translate-then-scale-via-parent-group) math —
+// mutating rotation/scale on the same object you just recentred warps the
+// translation (T·R·S composition), so callers apply scale/rotation on a
+// WRAPPING group, never on the returned object itself.
+function recentre(scene: THREE.Object3D, target: number) {
+  const clone = scene.clone(true)
+  const bbox = new THREE.Box3().setFromObject(clone)
+  const size = new THREE.Vector3()
+  const center = new THREE.Vector3()
+  bbox.getSize(size)
+  bbox.getCenter(center)
+  const maxDim = Math.max(size.x, size.y, size.z) || 1
+  const s = target / maxDim
+  clone.position.sub(center)
+  return { object: clone, scale: s, size }
+}
+
 function Cube({
   half,
+  explodeTarget,
   onGrab,
 }: {
   half: number
+  explodeTarget: boolean
   onGrab: (body: RapierRigidBody, point: THREE.Vector3, h: CubeHandle) => void
 }) {
   const gltf = useGLTF(MODEL_URL)
+  const boardGltf = useGLTF(BOARD_URL, DRACO_PATH)
 
-  // Clone, recentre on the origin and normalise the size so the cube fits the
-  // frame regardless of the GLB's authored scale. The cuboid collider is sized
-  // to the scaled mesh so physics and visuals never drift.
-  const { object, meshScale, halfExtents } = useMemo(() => {
-    const clone = gltf.scene.clone(true)
-    const bbox = new THREE.Box3().setFromObject(clone)
+  // Pull the named parts (shell / base / board placeholder / led_on) out of
+  // the cube clone so each can be offset independently for the exploded view.
+  // Each part is re-parented into a NEW group structure below (so it can be
+  // animated independently) — re-parenting drops it out of the original
+  // "world" wrapper, so the whole-assembly recentre offset has to be applied
+  // directly to each part's own position, not to a shared ancestor.
+  const { parts, meshScale, halfExtents } = useMemo(() => {
+    const root = gltf.scene.clone(true)
+    const bbox = new THREE.Box3().setFromObject(root)
     const size = new THREE.Vector3()
     const center = new THREE.Vector3()
     bbox.getSize(size)
     bbox.getCenter(center)
     const maxDim = Math.max(size.x, size.y, size.z) || 1
-    const target = half * SIZE // world size of the largest dimension
-    const s = target / maxDim
-    clone.position.sub(center) // recentre to origin
-    clone.traverse((child) => {
+    const s = (half * SIZE) / maxDim
+
+    // shell/base/board/led_on may sit a level or two below the cloned root
+    // (the GLB's nodes nest under a "world" group) — traverse, don't assume
+    // they're direct children, and match by their exact authored node names.
+    const found: Record<string, THREE.Object3D> = {}
+    const NAMES = new Set(["shell", "base", "board", "led_on"])
+    root.traverse((child) => {
+      if (NAMES.has(child.name) && !found[child.name]) found[child.name] = child
+    })
+    root.traverse((child) => {
+      const mesh = child as THREE.Mesh
+      if (!mesh.isMesh) return
+      mesh.castShadow = true
+      mesh.receiveShadow = true
+      // the lit LED dots sit recessed in the shell, where screen-space AO
+      // darkens them despite being emissive — boost + don't self-shadow them
+      // so they read clearly instead of disappearing into the crevice shading
+      if (mesh.name === "led_on") {
+        mesh.castShadow = false
+        const mat = (mesh.material as THREE.MeshStandardMaterial).clone()
+        mat.emissiveIntensity = 9
+        mat.depthTest = false
+        mat.side = THREE.DoubleSide
+        mesh.material = mat
+        mesh.renderOrder = 10
+      }
+    })
+    // recentre each extracted part directly (see note above)
+    Object.values(found).forEach((part) => part.position.sub(center))
+
+    const he = size.clone().multiplyScalar(s / 2)
+    return { parts: found, meshScale: s, halfExtents: he }
+  }, [gltf.scene, half])
+
+  // The real, downloaded micro:bit board — normalised to a legible size (not
+  // forced to the tiny placeholder footprint, which is just an abstracted
+  // stand-in) and revealed only once the cube is pulled apart.
+  const board = useMemo(() => {
+    const { object, scale: s } = recentre(boardGltf.scene, half * SIZE * 0.78)
+    object.traverse((child) => {
       const mesh = child as THREE.Mesh
       if (!mesh.isMesh) return
       mesh.castShadow = true
       mesh.receiveShadow = true
     })
-    const he = new THREE.Vector3(size.x, size.y, size.z).multiplyScalar(s / 2)
-    return { object: clone, meshScale: s, halfExtents: he }
-  }, [gltf.scene, half])
+    return { object, scale: s }
+  }, [boardGltf.scene, half])
 
   const ref = useRef<RapierRigidBody>(null)
   const handle: CubeHandle = useMemo(
@@ -123,9 +201,44 @@ function Cube({
 
   const onPointerDown = (e: any) => {
     e.stopPropagation()
-    if (!ref.current) return
+    if (!ref.current || explodeTarget) return
     onGrab(ref.current, e.point.clone(), handle)
   }
+
+  // freeze the body (kinematic, ignores gravity/collisions) while exploded so
+  // parts can fly apart without the cube simultaneously tumbling or falling
+  useEffect(() => {
+    const body = ref.current
+    if (!body) return
+    if (explodeTarget) {
+      body.setBodyType(BODY_KINEMATIC_POSITION, true)
+    } else {
+      body.setBodyType(BODY_DYNAMIC, true)
+      body.setLinvel({ x: 0, y: 0, z: 0 }, true)
+      body.setAngvel({ x: 0, y: 0, z: 0 }, true)
+    }
+  }, [explodeTarget])
+
+  const explode = useRef(0)
+  const shellRef = useRef<THREE.Group>(null)
+  const baseRef = useRef<THREE.Group>(null)
+  const boardRef = useRef<THREE.Group>(null)
+
+  useFrame(() => {
+    const target = explodeTarget ? 1 : 0
+    explode.current += (target - explode.current) * EXPLODE_EASE
+    const e = explode.current
+    // these groups sit OUTSIDE the meshScale-scaled geometry group (siblings,
+    // not children of it) so the offsets are in final scene units — applying
+    // them inside the scaled group would shrink the motion to almost nothing
+    if (shellRef.current) shellRef.current.position.set(0, EXPLODE_SHELL_Y * half * e, 0)
+    if (baseRef.current) baseRef.current.position.set(0, EXPLODE_BASE_Y * half * e, 0)
+    if (boardRef.current) {
+      boardRef.current.position.set(0, EXPLODE_BOARD_Y * half * e, EXPLODE_BOARD_Z * half * e)
+      const k = THREE.MathUtils.smoothstep(e, 0.15, 0.65)
+      boardRef.current.scale.setScalar(k)
+    }
+  })
 
   return (
     <RigidBody
@@ -142,8 +255,19 @@ function Cube({
       ccd
     >
       <CuboidCollider args={[halfExtents.x, halfExtents.y, halfExtents.z]} />
-      <group scale={meshScale} onPointerDown={onPointerDown}>
-        <primitive object={object} dispose={null} />
+      <group ref={shellRef} onPointerDown={onPointerDown}>
+        <group scale={meshScale}>
+          {parts.shell && <primitive object={parts.shell} dispose={null} />}
+          {parts.led_on && <primitive object={parts.led_on} dispose={null} />}
+        </group>
+      </group>
+      <group ref={baseRef} onPointerDown={onPointerDown}>
+        <group scale={meshScale}>{parts.base && <primitive object={parts.base} dispose={null} />}</group>
+      </group>
+      <group ref={boardRef} scale={0}>
+        <group scale={board.scale}>
+          <primitive object={board.object} dispose={null} />
+        </group>
       </group>
     </RigidBody>
   )
@@ -199,7 +323,7 @@ type DragState = {
   radius: number
 }
 
-function Scene({ half, tilt }: { half: number; tilt: boolean }) {
+function Scene({ half, tilt, explode }: { half: number; tilt: boolean; explode: boolean }) {
   const { camera, gl } = useThree()
   const box: Box = useMemo(() => ({ bx: half * 1.04, bz: half * 1.04 }), [half])
   const colliderWalls = useMemo(() => buildWalls(box, WALL_COL_HEIGHT), [box])
@@ -210,6 +334,16 @@ function Scene({ half, tilt }: { half: number; tilt: boolean }) {
   const twist = useRef<{ base: THREE.Quaternion; start: number; delta: number } | null>(null)
   const pointerNdc = useRef(new THREE.Vector2())
   const raycaster = useMemo(() => new THREE.Raycaster(), [])
+
+  // an explode toggle mid-drag would fight the kinematic freeze in Cube —
+  // release the grab the moment explode engages
+  useEffect(() => {
+    if (explode) {
+      drag.current = null
+      twist.current = null
+      twoFinger.current = false
+    }
+  }, [explode])
 
   const onGrab = (body: RapierRigidBody, point: THREE.Vector3, h: CubeHandle) => {
     gl.domElement.style.cursor = "grabbing"
@@ -395,18 +529,20 @@ function Scene({ half, tilt }: { half: number; tilt: boolean }) {
 
   return (
     <>
-      <CameraRig half={half} />
+      <CameraRig half={half} explode={explode} />
       <TiltController tilt={tilt} />
 
       {/* klossete-style lighting: a warm key light from the top casts a single
           hard shadow down-screen; a low cool fill keeps the dark side from
           going flat. N8AO (in PostFx) adds contact grounding — no second,
           separately-baked shadow technique sharing the same floor plane (that
-          combination z-fought into a striped/banded artifact). */}
-      <ambientLight intensity={0.5} color="#fff3e3" />
+          combination z-fought into a striped/banded artifact). Intensities run
+          higher than the old model needed — this GLB's cobalt material is a
+          noticeably darker baseColor, so it needs more light to read the same. */}
+      <ambientLight intensity={0.75} color="#fff3e3" />
       <directionalLight
         position={[-3.5, 13, -2.5]}
-        intensity={2.4}
+        intensity={3.4}
         color="#fff0d8"
         castShadow
         shadow-mapSize={[2048, 2048]}
@@ -415,7 +551,7 @@ function Scene({ half, tilt }: { half: number; tilt: boolean }) {
       >
         <orthographicCamera attach="shadow-camera" args={[-shadowSpan, shadowSpan, shadowSpan, -shadowSpan, 1, 40]} />
       </directionalLight>
-      <directionalLight position={[6, 5, 4]} intensity={0.5} color="#bcd2ff" />
+      <directionalLight position={[6, 5, 4]} intensity={0.85} color="#bcd2ff" />
 
       {/* floor (receives the cast shadow) */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
@@ -436,13 +572,13 @@ function Scene({ half, tilt }: { half: number; tilt: boolean }) {
       ))}
 
       <Suspense fallback={null}>
-        <Cube half={half} onGrab={onGrab} />
+        <Cube half={half} explodeTarget={explode} onGrab={onGrab} />
       </Suspense>
     </>
   )
 }
 
-export default function CubeScene({ tilt = false }: { tilt?: boolean }) {
+export default function CubeScene({ tilt = false, explode = false }: { tilt?: boolean; explode?: boolean }) {
   const half = useViewHalf()
   return (
     <Canvas
@@ -459,11 +595,14 @@ export default function CubeScene({ tilt = false }: { tilt?: boolean }) {
     >
       <color attach="background" args={["#e9e6dd"]} />
       <Physics gravity={[0, -G, 0]} timeStep={1 / 60} numSolverIterations={8} maxCcdSubsteps={2} interpolate>
-        <Scene half={half} tilt={tilt} />
+        <Scene half={half} tilt={tilt} explode={explode} />
       </Physics>
-      <PostFx />
+      {/* a world-space AO radius this large relative to the hero's zoomed-out
+          view crushes the recessed, emissive LED dots — use a much smaller one */}
+      <PostFx aoRadius={0.16} aoIntensity={0.9} />
     </Canvas>
   )
 }
 
 useGLTF.preload(MODEL_URL)
+useGLTF.preload(BOARD_URL, DRACO_PATH)

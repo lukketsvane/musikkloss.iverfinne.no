@@ -46,9 +46,18 @@ function LedRig() {
       mesh.castShadow = true
       mesh.receiveShadow = true
       if (mesh.name === "led_on" || mesh.name === "led_off") {
-        const mat = mesh.material as THREE.MeshStandardMaterial
-        mesh.material = mat.clone() // animate independently of the hero's material
-        if (mesh.name === "led_on") ledMat.current = mesh.material as THREE.MeshStandardMaterial
+        const mat = (mesh.material as THREE.MeshStandardMaterial).clone() // animate independently of the hero's material
+        mesh.material = mat
+        if (mesh.name === "led_on") {
+          // the lit dots sit recessed behind the shell's surface (not a true
+          // through-hole), occluding them outright — draw on top regardless
+          // of depth, same fix as the hero cube
+          mesh.castShadow = false
+          mat.depthTest = false
+          mat.side = THREE.DoubleSide
+          mesh.renderOrder = 10
+          ledMat.current = mat
+        }
         const b = new THREE.Box3().setFromObject(mesh)
         if (!any) {
           ledBox.copy(b)

@@ -8,6 +8,7 @@ const CubeScene = dynamic(() => import("@/components/CubeScene"), { ssr: false }
 
 export default function HeroStage() {
   const [tilt, setTilt] = useState(false)
+  const [explode, setExplode] = useState(false)
 
   // The accelerometer needs an explicit permission grant on iOS 13+, and it
   // must come from a user gesture (this tap). Elsewhere it's available at once.
@@ -30,7 +31,7 @@ export default function HeroStage() {
 
   return (
     <div className="stage">
-      <CubeScene tilt={tilt} />
+      <CubeScene tilt={tilt} explode={explode} />
 
       {/* motion-sensor (tilt) toggle */}
       <button
@@ -44,6 +45,22 @@ export default function HeroStage() {
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
           <rect x="7.5" y="3.5" width="9" height="17" rx="2.2" transform="rotate(18 12 12)" />
           <circle cx="12" cy="12" r="1.1" fill="currentColor" stroke="none" />
+        </svg>
+      </button>
+
+      {/* exploded-view toggle: pull the body apart to show what's inside */}
+      <button
+        type="button"
+        onClick={() => setExplode((v) => !v)}
+        aria-pressed={explode}
+        aria-label="Sprengskisse"
+        title="Sprengskisse"
+        className={`stage-btn explodebtn${explode ? " on" : ""}`}
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="6" y="3.5" width="12" height="4.2" rx="1.2" />
+          <rect x="6" y="10" width="12" height="4.2" rx="1.2" />
+          <rect x="6" y="16.5" width="12" height="4.2" rx="1.2" />
         </svg>
       </button>
 

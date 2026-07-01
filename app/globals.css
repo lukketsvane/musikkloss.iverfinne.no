@@ -48,6 +48,8 @@ h1 em{font-style:italic; color:var(--cobalt)}
 .arbtn img{width:26px; height:26px; display:block}
 .tiltbtn{left:14px; color:var(--muted)}
 .tiltbtn.on{color:#fff; background:var(--cobalt); border-color:var(--cobalt)}
+.explodebtn{left:66px; color:var(--muted)}
+.explodebtn.on{color:#fff; background:var(--cobalt); border-color:var(--cobalt)}
 
 /* sections */
 section.block{padding:66px 0; border-top:1px solid var(--line)}
