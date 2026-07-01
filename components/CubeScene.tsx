@@ -20,7 +20,7 @@ const DRACO_PATH = "/draco/"
 
 const G = 22 // gravity strength
 const SIZE = 1.4 // cube's largest dimension, as a multiple of the framed half-width
-const HERO_YAW = -0.42 // resting yaw that presents the speaker face + rounded top
+const HERO_YAW = -0.3 // resting yaw — mostly front face, only a hint of the (featureless) side
 
 // rapier RigidBodyType values (Dynamic / KinematicPositionBased) — frozen in
 // place while exploded so parts can fly apart without gravity/throws fighting it
@@ -30,9 +30,9 @@ const BODY_KINEMATIC_POSITION = 2
 // how far each part flies apart at full explode (scaled by `half` so it stays
 // proportional across screen sizes), in the model's own recentred local space
 const EXPLODE_SHELL_Y = 0.85
-const EXPLODE_BASE_Y = -0.7
-const EXPLODE_BOARD_Y = 0.35
-const EXPLODE_BOARD_Z = 1.9
+const EXPLODE_BASE_Y = -0.28
+const EXPLODE_BOARD_Y = 0.32
+const EXPLODE_BOARD_Z = 1.5
 const EXPLODE_EASE = 0.09
 
 // drag / carry servo constants (ported from the klossete engine)
@@ -76,19 +76,20 @@ function CameraRig({ half, explode }: { half: number; explode: boolean }) {
     const aspect = size.width / size.height
     const fov = 32
     const halfV = Math.tan((fov / 2) * (Math.PI / 180))
-    // breathing room so the cube + its shadow never crowd the frame edge —
+    // breathing room so the cube + its shadow never crowd the frame edge — just
+    // enough, not so much the product shrinks into a sea of empty background —
     // wider once exploded, since the parts spread well beyond the resting silhouette
-    const margin = explode ? 2.3 : 1.28
+    const margin = explode ? 1.7 : 1.06
     const need = (half * margin) / Math.min(1, aspect) // frame ±half (+margin)
     const dist = need / halfV + 0.3
-    const el = THREE.MathUtils.degToRad(33) // 0 = side-on, 90 = top-down — a calmer, more level product angle
+    const el = THREE.MathUtils.degToRad(29) // 0 = side-on, 90 = top-down — level, eye-height product angle
     cam.fov = fov
     cam.position.set(0, Math.sin(el) * dist, Math.cos(el) * dist)
     cam.up.set(0, 1, 0)
     cam.near = 0.1
     cam.far = 400
     cam.aspect = aspect
-    cam.lookAt(0, half * 0.22, 0)
+    cam.lookAt(0, half * 0.18, 0)
     cam.updateProjectionMatrix()
   }, [camera, size, half, explode])
   return null
@@ -168,6 +169,15 @@ function Cube({
         mesh.material = mat
         mesh.renderOrder = 10
       }
+      // base sits tucked under the shell's own moulded lower trim — once
+      // pulled apart it needs to draw on top to stay visible instead of
+      // disappearing behind that trim geometry. Cloned (not shared) so this
+      // can be toggled on only while exploding, in the useFrame below —
+      // forcing it on permanently would let it wrongly poke through the
+      // shell while still assembled.
+      if (mesh.name === "base") {
+        mesh.material = (mesh.material as THREE.MeshStandardMaterial).clone()
+      }
     })
     // recentre each extracted part directly (see note above)
     Object.values(found).forEach((part) => part.position.sub(center))
@@ -176,14 +186,14 @@ function Cube({
     return { parts: found, meshScale: s, halfExtents: he }
   }, [gltf.scene, half])
 
-  // The real, downloaded micro:bit board — sized through the SAME mm-to-
-  // scene-unit factor as the shell/base (meshScale), using the CAD model's
-  // actual long-edge length (52mm), so it reads at its true size relative to
-  // the enclosure instead of an arbitrary fraction of the framing constant.
+  // The real, downloaded micro:bit board — sized as a fraction of the shell's
+  // own VERIFIED rendered width (halfExtents, already proven correct — it
+  // drives the physics collider), rather than re-deriving through the raw
+  // CAD file's mm units, which repeatedly produced the wrong on-screen size.
   // Revealed only once the cube is pulled apart.
-  const BOARD_LONG_EDGE_MM = 48
   const board = useMemo(() => {
-    const { object, scale: s } = recentre(boardGltf.scene, meshScale * BOARD_LONG_EDGE_MM)
+    const target = halfExtents.x * 2 * 0.8
+    const { object, scale: s } = recentre(boardGltf.scene, target)
     object.traverse((child) => {
       const mesh = child as THREE.Mesh
       if (!mesh.isMesh) return
@@ -198,7 +208,7 @@ function Cube({
       mesh.renderOrder = 9
     })
     return { object, scale: s }
-  }, [boardGltf.scene, meshScale])
+  }, [boardGltf.scene, halfExtents])
 
   const ref = useRef<RapierRigidBody>(null)
   const handle: CubeHandle = useMemo(
@@ -243,6 +253,12 @@ function Cube({
     // them inside the scaled group would shrink the motion to almost nothing
     if (shellRef.current) shellRef.current.position.set(0, EXPLODE_SHELL_Y * half * e, 0)
     if (baseRef.current) baseRef.current.position.set(0, EXPLODE_BASE_Y * half * e, 0)
+    if (parts.base && (parts.base as THREE.Mesh).isMesh) {
+      const mat = (parts.base as THREE.Mesh).material as THREE.MeshStandardMaterial
+      const on = e > 0.08
+      if (mat.depthTest !== !on) mat.depthTest = !on
+      ;(parts.base as THREE.Mesh).renderOrder = on ? 8 : 0
+    }
     if (boardRef.current) {
       boardRef.current.position.set(0, EXPLODE_BOARD_Y * half * e, EXPLODE_BOARD_Z * half * e)
       const k = THREE.MathUtils.smoothstep(e, 0.15, 0.65)
@@ -275,6 +291,10 @@ function Cube({
         <group scale={meshScale}>{parts.base && <primitive object={parts.base} dispose={null} />}</group>
       </group>
       <group ref={boardRef} scale={0}>
+        {/* the board sits low inside the shell's shadow — a light that travels
+            with it (instead of relying on the key light, which the shell
+            itself blocks) so its components actually read once revealed */}
+        <pointLight position={[0, 0.55, 0.5]} intensity={0.35} distance={1.1} decay={2} color="#fff6e8" />
         <group scale={board.scale}>
           <primitive object={board.object} dispose={null} />
         </group>
@@ -551,7 +571,7 @@ function Scene({ half, tilt, explode }: { half: number; tilt: boolean; explode: 
           noticeably darker baseColor, so it needs more light to read the same. */}
       <ambientLight intensity={0.75} color="#fff3e3" />
       <directionalLight
-        position={[-3.5, 13, -2.5]}
+        position={[-2, 15, -1.3]}
         intensity={3.4}
         color="#fff0d8"
         castShadow

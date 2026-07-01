@@ -7,7 +7,7 @@ import * as THREE from "three"
 import { PostFx } from "@/components/PostFx"
 
 const MODEL_URL = "/microbit_cube.glb"
-const HERO_YAW = -0.42 // same resting orientation as the hero cube — reads as the same object
+const HERO_YAW = -0.3 // same resting orientation as the hero cube — reads as the same object
 const SIZE = 1.7 // normalised model size, in this scene's own world units
 
 // A slow, gentle brightening of the lit LEDs — literally shows "glør gjennom
