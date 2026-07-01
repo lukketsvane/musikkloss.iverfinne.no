@@ -13,6 +13,8 @@ body{
 a{color:inherit}
 .serif{font-family:var(--font-newsreader),"Newsreader",Georgia,serif}
 
+.callback-screen{min-height:100vh; display:grid; place-items:center; color:var(--muted); font-size:15px}
+
 /* top bar */
 header{position:sticky; top:0; z-index:10; backdrop-filter:saturate(120%) blur(8px);
   background:color-mix(in srgb, var(--paper) 78%, transparent); border-bottom:1px solid var(--line)}
@@ -89,6 +91,12 @@ section.block{padding:66px 0; border-top:1px solid var(--line)}
 .spotify-embed{min-height:80px}
 .spotify-embed iframe{display:block; border:0; border-radius:13px}
 .spotify-loading{padding:20px 16px; font-size:13px; color:var(--muted); text-align:center}
+.spotify-connect-row{display:flex; align-items:center; justify-content:space-between; gap:10px;
+  padding:10px 14px; border-bottom:1px solid var(--line)}
+.spotify-connect-label{font-size:12px; letter-spacing:.02em; color:var(--muted)}
+.spotify-connect-btn{border:0; border-radius:999px; padding:7px 14px; font-size:12px; font-weight:600;
+  color:#fff; background:var(--cobalt); cursor:pointer; transition:background .12s}
+.spotify-connect-btn:hover{background:var(--cobalt-2)}
 .shuffle-badge{position:absolute; top:14px; left:14px; z-index:2; display:flex; align-items:center; gap:6px;
   padding:6px 12px 6px 10px; border-radius:999px; font-size:12px; font-weight:600; color:#fff;
   background:var(--cobalt); box-shadow:0 2px 8px rgba(16,24,42,.18)}

@@ -19,6 +19,27 @@ export default function Page() {
       </header>
 
       <main className="wrap">
+        <section className="block" style={{ borderTop: "none" }}>
+          <div className="two">
+            <Reveal>
+              <div className="k">styring</div>
+              <h2 className="serif">Same vri, ekte Spotify.</h2>
+              <p>
+                Ingen knappar, ingen app. Vri klossen til høgre so spelar musikken; vri til venstre
+                so hoppar han vidare. Vipp han framover eller bakover for spor fram og tilbake. Eit
+                lite trykk er pause.
+              </p>
+              <p>
+                Prøv sjølv, under — vri og vipp klossen, so styrer du ein ekte Spotify-spelar. Same
+                gest som den ekte klossen bruker.
+              </p>
+            </Reveal>
+            <Reveal delay={120}>
+              <GesturePlayer />
+            </Reveal>
+          </div>
+        </section>
+
         <section className="hero">
           <h1 className="serif">
             musikk&shy;klossen
@@ -117,27 +138,6 @@ export default function Page() {
             </Reveal>
             <Reveal delay={120}>
               <ColorPicker />
-            </Reveal>
-          </div>
-        </section>
-
-        <section className="block">
-          <div className="two">
-            <Reveal>
-              <div className="k">styring</div>
-              <h2 className="serif">Same vri, ekte Spotify.</h2>
-              <p>
-                Ingen knappar, ingen app. Vri klossen til høgre so spelar musikken; vri til venstre
-                so hoppar han vidare. Vipp han framover eller bakover for spor fram og tilbake. Eit
-                lite trykk er pause.
-              </p>
-              <p>
-                Prøv sjølv, under — vri og vipp klossen, so styrer du ein ekte Spotify-spelar. Same
-                gest som den ekte klossen bruker.
-              </p>
-            </Reveal>
-            <Reveal delay={120}>
-              <GesturePlayer />
             </Reveal>
           </div>
         </section>

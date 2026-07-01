@@ -3,14 +3,18 @@
 import dynamic from "next/dynamic"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { LazyStage } from "@/components/LazyStage"
+import { useSpotifyAuth } from "@/components/useSpotifyAuth"
+import SpotifyEmbedBackend from "@/components/SpotifyEmbedBackend"
+import SpotifyWebPlaybackBackend from "@/components/SpotifyWebPlaybackBackend"
+import type { PlaybackBackend } from "@/lib/spotifyBackend"
 
 const GestureScene = dynamic(() => import("@/components/GestureScene"), { ssr: false })
 
-// Real Spotify, played through Spotify's own official Embed IFrame API — no
-// backend, no keys: the iframe IS the real Spotify player (art, title,
-// progress; full tracks if you're signed in to Spotify, 30s previews
-// otherwise). Tracks are pulled straight off Aphex Twin's own Spotify artist
-// page. The 3D cube's turn/flip/balance gestures drive it via the controller.
+// Real Spotify. Connected Premium accounts get full tracks via the Web
+// Playback SDK; everyone else (not connected, or connected without Premium)
+// gets Spotify's own anonymous Embed IFrame API instead (art, title, 30s
+// previews). Tracks are pulled straight off Aphex Twin's own Spotify artist
+// page. The 3D cube's turn/flip/balance gestures drive whichever is active.
 const TRACKS = [
   "spotify:track:7o2AeQZzfCERsRmOM86EcB", // Xtal
   "spotify:track:643gyipSU7dkmrFhJ8UAIm", // Pulsewidth
@@ -24,107 +28,38 @@ const TRACKS = [
   "spotify:track:3JJ4BoL9WVHk4Yye2EGJC7", // Flim
 ]
 
-const API_SRC = "https://open.spotify.com/embed/iframe-api/v1"
-const READY_TIMEOUT_MS = 8000
-
 export default function GesturePlayer() {
-  const embedRef = useRef<HTMLDivElement>(null)
-  const controller = useRef<any>(null)
+  const backendRef = useRef<PlaybackBackend | null>(null)
   const index = useRef(0)
-  const pendingUri = useRef<string | null>(null)
-  const pendingTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const hasStarted = useRef(false)
   const [ready, setReady] = useState(false)
   const [failed, setFailed] = useState(false)
+  const [premiumError, setPremiumError] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
   const [shuffle, setShuffle] = useState(false)
   const shuffleRef = useRef(false)
   shuffleRef.current = shuffle
 
-  const startPending = useCallback((c: any) => {
-    const uri = pendingUri.current
-    if (!uri) return
-    hasStarted.current = true
-    try {
-      c.resume()
-    } catch {}
-    pendingUri.current = null
-    if (pendingTimer.current) {
-      clearTimeout(pendingTimer.current)
-      pendingTimer.current = null
-    }
+  const { accessToken, connected, checked, connect, disconnect } = useSpotifyAuth()
+  const useSdk = connected && !!accessToken && !premiumError
+
+  // whichever backend is mounted swaps out from under the loading/failed
+  // state whenever connect status changes — reset so the UI reflects the
+  // newly-mounting backend, not the previous one's stale state
+  useEffect(() => {
+    setReady(false)
+    setFailed(false)
+    backendRef.current = null
+  }, [useSdk])
+
+  const handleReady = useCallback((backend: PlaybackBackend) => {
+    backendRef.current = backend
+    setReady(true)
   }, [])
 
-  // create the Spotify embed controller once (this component is not lazily
-  // unmounted, so the controller persists for the page's lifetime). If the
-  // embed never signals "ready" (script blocked, network down, iframe
-  // sandboxed), fall back to a direct link instead of hanging forever.
-  useEffect(() => {
-    let cancelled = false
-    let readyTimer: ReturnType<typeof setTimeout> | null = null
-    const make = (IFrameAPI: any) => {
-      if (cancelled || !embedRef.current) return
-      IFrameAPI.createController(
-        embedRef.current,
-        { uri: TRACKS[0], width: "100%", height: "80" },
-        (ctrl: any) => {
-          controller.current = ctrl
-          ctrl.addListener("ready", () => {
-            if (readyTimer) clearTimeout(readyTimer)
-            setReady(true)
-          })
-          ctrl.addListener("playback_update", (e: any) => {
-            setIsPlaying(!e.data.isPaused)
-            // confirm the just-requested track actually swapped in before
-            // resuming it — event-driven, not a guessed timeout, so a slow
-            // network never races a stale play() against the old track
-            if (pendingUri.current && e.data.playingURI === pendingUri.current) {
-              startPending(ctrl)
-            }
-          })
-        },
-      )
-    }
-    ;(window as any).onSpotifyIframeApiReady = make
-    if ((window as any).SpotifyIframeApi) {
-      make((window as any).SpotifyIframeApi)
-    } else if (!document.getElementById("spotify-iframe-api")) {
-      const s = document.createElement("script")
-      s.id = "spotify-iframe-api"
-      s.src = API_SRC
-      s.async = true
-      s.onerror = () => setFailed(true)
-      document.body.appendChild(s)
-    }
-    readyTimer = setTimeout(() => {
-      if (!cancelled) setFailed((prev) => prev || !controller.current)
-    }, READY_TIMEOUT_MS)
-    return () => {
-      cancelled = true
-      if (readyTimer) clearTimeout(readyTimer)
-      if (pendingTimer.current) clearTimeout(pendingTimer.current)
-      try {
-        controller.current?.destroy?.()
-      } catch {}
-      controller.current = null
-    }
-  }, [startPending])
-
-  const load = useCallback(
-    (i: number) => {
-      const c = controller.current
-      if (!c) return
-      index.current = (i + TRACKS.length) % TRACKS.length
-      const uri = TRACKS[index.current]
-      pendingUri.current = uri
-      c.loadEntity(uri)
-      // fallback in case playback_update never reports this exact URI (some
-      // builds coalesce updates) — still resolves the pending play eventually
-      if (pendingTimer.current) clearTimeout(pendingTimer.current)
-      pendingTimer.current = setTimeout(() => startPending(c), 1200)
-    },
-    [startPending],
-  )
+  const load = useCallback((i: number) => {
+    index.current = (i + TRACKS.length) % TRACKS.length
+    backendRef.current?.loadAndPlay(TRACKS[index.current])
+  }, [])
 
   // when balanced on its rounded edge, the cube is "shuffling" — skips pick a
   // random track instead of the next/previous one in order, same as toggling
@@ -138,22 +73,16 @@ export default function GesturePlayer() {
     return index.current + dir
   }, [])
 
-  const onTogglePlay = useCallback(() => controller.current?.togglePlay(), [])
-  const onPlay = useCallback(() => {
-    const c = controller.current
-    if (!c) return
-    // resume() no-ops until something has actually been loaded/played once;
-    // track that explicitly rather than relying on a postMessage call to
-    // throw (it won't) to decide whether play() is needed instead
-    if (hasStarted.current) c.resume()
-    else {
-      hasStarted.current = true
-      c.play()
-    }
-  }, [])
+  const onTogglePlay = useCallback(() => backendRef.current?.togglePlay(), [])
+  const onPlay = useCallback(() => backendRef.current?.resume(), [])
   const onNext = useCallback(() => load(pickIndex(1)), [load, pickIndex])
   const onPrev = useCallback(() => load(pickIndex(-1)), [load, pickIndex])
   const onBalanceChange = useCallback((balanced: boolean) => setShuffle(balanced), [])
+  const handlePremiumError = useCallback(() => setPremiumError(true), [])
+  const handleDisconnect = useCallback(() => {
+    disconnect()
+    setPremiumError(false)
+  }, [disconnect])
 
   return (
     <div className="stage gesture-stage">
@@ -179,7 +108,42 @@ export default function GesturePlayer() {
       )}
 
       <div className="spotify-card">
-        <div ref={embedRef} className="spotify-embed" />
+        <div className="spotify-connect-row">
+          <span className="spotify-connect-label">
+            {useSdk ? "Tilkopla · fulle låtar" : connected ? "Tilkopla · utdrag" : "Ikkje tilkopla · utdrag"}
+          </span>
+          {checked && (
+            connected ? (
+              <button type="button" className="spotify-connect-btn" onClick={handleDisconnect}>
+                Kopla frå
+              </button>
+            ) : (
+              <button type="button" className="spotify-connect-btn" onClick={connect}>
+                Kopla til Spotify
+              </button>
+            )
+          )}
+        </div>
+
+        {useSdk ? (
+          <SpotifyWebPlaybackBackend
+            key="sdk"
+            accessToken={accessToken as string}
+            firstUri={TRACKS[0]}
+            onReady={handleReady}
+            onPlaybackChange={setIsPlaying}
+            onPremiumError={handlePremiumError}
+          />
+        ) : (
+          <SpotifyEmbedBackend
+            key="embed"
+            firstUri={TRACKS[0]}
+            onReady={handleReady}
+            onPlaybackChange={setIsPlaying}
+            onFailed={() => setFailed(true)}
+          />
+        )}
+
         {!ready && !failed && <div className="spotify-loading">Koplar til Spotify…</div>}
         {failed && (
           <div className="spotify-loading">
@@ -188,6 +152,9 @@ export default function GesturePlayer() {
               opne i Spotify
             </a>
           </div>
+        )}
+        {premiumError && (
+          <div className="spotify-loading">Kontoen speler ikkje fulle låtar her (krev Premium) — nyttar utdrag i staden.</div>
         )}
       </div>
     </div>
