@@ -138,7 +138,7 @@ export default function GesturePlayer() {
             <path d="M4 17h2.8c1 0 1.9-.5 2.5-1.4l5.4-8.2c.6-.9 1.5-1.4 2.5-1.4H20" />
             <path d="M17 3l3 3-3 3M4 7h2.8c1 0 1.9.5 2.5 1.4l.7 1M17 21l3-3-3-3" />
           </svg>
-          Tilfeldig
+          shuffle
         </span>
       )}
 

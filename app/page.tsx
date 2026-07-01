@@ -1,5 +1,4 @@
 import DetailStage from "@/components/DetailStage"
-import HeroStage from "@/components/HeroStage"
 import ColorPicker from "@/components/ColorPicker"
 import GesturePlayer from "@/components/GesturePlayer"
 import DimensionStage from "@/components/DimensionStage"
@@ -21,31 +20,24 @@ export default function Page() {
 
       <main className="wrap">
         <section className="hero">
-          <div className="hero-grid">
+          <h1 className="serif">
+            musikk&shy;klossen
+            <br />
+            du <em>vrir</em> på.
+          </h1>
+          <p className="lede">
+            Ein kloss du held i handa. Vri han ein veg så spelar musikken; vri han ein annan så
+            hoppar han vidare. Inga skjerm, ingen knappar — berre form.
+          </p>
+          <div className="meta">
             <div>
-              <h1 className="serif">
-                musikk&shy;klossen
-                <br />
-                du <em>vrir</em> på.
-              </h1>
-              <p className="lede">
-                Ein kloss du held i handa. Vri han ein veg så spelar musikken; vri han ein annan så
-                hoppar han vidare. Inga skjerm, ingen knappar — berre form.
-              </p>
-              <div className="meta">
-                <div>
-                  <b>Form</b>half cylinder
-                </div>
-                <div>
-                  <b>Kjerne</b>micro:bit V2
-                </div>
-                <div>
-                  <b>Kropp</b>3D-printa kobolt
-                </div>
-              </div>
+              <b>Form</b>half cylinder
             </div>
-            <div className="order2">
-              <HeroStage />
+            <div>
+              <b>Kjerne</b>micro:bit V2
+            </div>
+            <div>
+              <b>Kropp</b>3D-printa kobolt
             </div>
           </div>
         </section>
