@@ -6,33 +6,34 @@ import { LazyStage } from "@/components/LazyStage"
 
 const GestureScene = dynamic(() => import("@/components/GestureScene"), { ssr: false })
 
-// Real Spotify — a curated set of tracks from Spotify's own "Peaceful Piano"
-// editorial playlist, played through Spotify's official Embed IFrame API. No
-// backend, no keys: the iframe is the real Spotify player (art, title, progress
-// and, if you're signed in to Spotify, full tracks — 30-second previews
-// otherwise). The 3D cube's turn/flip gestures drive it via the controller.
+// Real Spotify, played through Spotify's own official Embed IFrame API — no
+// backend, no keys: the iframe IS the real Spotify player (art, title,
+// progress; full tracks if you're signed in to Spotify, 30s previews
+// otherwise). Tracks are pulled straight off Aphex Twin's own Spotify artist
+// page. The 3D cube's turn/flip/balance gestures drive it via the controller.
 const TRACKS = [
-  "spotify:track:1zTqMY0pncDuHkLsQp9JHr",
-  "spotify:track:0YWCYAFinPOcx2CHG0bwr3",
-  "spotify:track:0as3Ar1l4C2iHxQhhy7GIS",
-  "spotify:track:2hegfLKqobbWtYPg0Z31vm",
-  "spotify:track:53V3JhARNabT4QOob1K5yc",
-  "spotify:track:5LAptbUhdbsbUUhoV3Q1Oy",
-  "spotify:track:5rtLxR4M0ZGoTe6vQOjlrU",
-  "spotify:track:3LkQZrx4ozjCE1RxHON6Bc",
-  "spotify:track:5rwzsU8i7jowKL9O6mWWON",
-  "spotify:track:0ZwtjxyinvQPJy8dZGMXwo",
-  "spotify:track:4VCdqcivjBs1bfQAGB54rQ",
-  "spotify:track:0qFkEaASYYsIIQoYlN9SF9",
+  "spotify:track:7o2AeQZzfCERsRmOM86EcB", // Xtal
+  "spotify:track:643gyipSU7dkmrFhJ8UAIm", // Pulsewidth
+  "spotify:track:4LIM4qmpHABufePRrLWbiM", // Qkthr
+  "spotify:track:6gbmylJ7sB7NFfMfTQHosf", // Alberto Balsalm
+  "spotify:track:7glKwbR1DyuIuE6XvZvJbQ", // #3
+  "spotify:track:1uaGSDFsLdReQgg8p7Obwh", // Avril 14th
+  "spotify:track:5oKbtirX6EbMMOgD2fMJ6E", // 180db_ [130]
+  "spotify:track:5ljMlD10En5rRGZU0cs2Np", // aisatsana [102]
+  "spotify:track:7KRQoq9GeWeCm0ZAXg5XMb", // Ageispolis
+  "spotify:track:3JJ4BoL9WVHk4Yye2EGJC7", // Flim
 ]
 
 const API_SRC = "https://open.spotify.com/embed/iframe-api/v1"
+const READY_TIMEOUT_MS = 8000
 
 export default function GesturePlayer() {
   const embedRef = useRef<HTMLDivElement>(null)
   const controller = useRef<any>(null)
   const index = useRef(0)
-  const pendingPlay = useRef(false)
+  const pendingUri = useRef<string | null>(null)
+  const pendingTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const hasStarted = useRef(false)
   const [ready, setReady] = useState(false)
   const [failed, setFailed] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
@@ -40,10 +41,27 @@ export default function GesturePlayer() {
   const shuffleRef = useRef(false)
   shuffleRef.current = shuffle
 
+  const startPending = useCallback((c: any) => {
+    const uri = pendingUri.current
+    if (!uri) return
+    hasStarted.current = true
+    try {
+      c.resume()
+    } catch {}
+    pendingUri.current = null
+    if (pendingTimer.current) {
+      clearTimeout(pendingTimer.current)
+      pendingTimer.current = null
+    }
+  }, [])
+
   // create the Spotify embed controller once (this component is not lazily
-  // unmounted, so the controller persists for the page's lifetime)
+  // unmounted, so the controller persists for the page's lifetime). If the
+  // embed never signals "ready" (script blocked, network down, iframe
+  // sandboxed), fall back to a direct link instead of hanging forever.
   useEffect(() => {
     let cancelled = false
+    let readyTimer: ReturnType<typeof setTimeout> | null = null
     const make = (IFrameAPI: any) => {
       if (cancelled || !embedRef.current) return
       IFrameAPI.createController(
@@ -51,10 +69,18 @@ export default function GesturePlayer() {
         { uri: TRACKS[0], width: "100%", height: "80" },
         (ctrl: any) => {
           controller.current = ctrl
-          ctrl.addListener("ready", () => setReady(true))
+          ctrl.addListener("ready", () => {
+            if (readyTimer) clearTimeout(readyTimer)
+            setReady(true)
+          })
           ctrl.addListener("playback_update", (e: any) => {
             setIsPlaying(!e.data.isPaused)
-            if (pendingPlay.current && !e.data.isPaused) pendingPlay.current = false
+            // confirm the just-requested track actually swapped in before
+            // resuming it — event-driven, not a guessed timeout, so a slow
+            // network never races a stale play() against the old track
+            if (pendingUri.current && e.data.playingURI === pendingUri.current) {
+              startPending(ctrl)
+            }
           })
         },
       )
@@ -70,30 +96,35 @@ export default function GesturePlayer() {
       s.onerror = () => setFailed(true)
       document.body.appendChild(s)
     }
+    readyTimer = setTimeout(() => {
+      if (!cancelled) setFailed((prev) => prev || !controller.current)
+    }, READY_TIMEOUT_MS)
     return () => {
       cancelled = true
+      if (readyTimer) clearTimeout(readyTimer)
+      if (pendingTimer.current) clearTimeout(pendingTimer.current)
       try {
         controller.current?.destroy?.()
       } catch {}
       controller.current = null
     }
-  }, [])
+  }, [startPending])
 
-  const load = useCallback((i: number) => {
-    const c = controller.current
-    if (!c) return
-    index.current = (i + TRACKS.length) % TRACKS.length
-    pendingPlay.current = true
-    c.loadUri(TRACKS[index.current])
-    // loadUri swaps the track; give the embed a moment, then start it
-    window.setTimeout(() => {
-      if (pendingPlay.current) {
-        try {
-          c.play()
-        } catch {}
-      }
-    }, 450)
-  }, [])
+  const load = useCallback(
+    (i: number) => {
+      const c = controller.current
+      if (!c) return
+      index.current = (i + TRACKS.length) % TRACKS.length
+      const uri = TRACKS[index.current]
+      pendingUri.current = uri
+      c.loadEntity(uri)
+      // fallback in case playback_update never reports this exact URI (some
+      // builds coalesce updates) — still resolves the pending play eventually
+      if (pendingTimer.current) clearTimeout(pendingTimer.current)
+      pendingTimer.current = setTimeout(() => startPending(c), 1200)
+    },
+    [startPending],
+  )
 
   // when balanced on its rounded edge, the cube is "shuffling" — skips pick a
   // random track instead of the next/previous one in order, same as toggling
@@ -109,10 +140,15 @@ export default function GesturePlayer() {
 
   const onTogglePlay = useCallback(() => controller.current?.togglePlay(), [])
   const onPlay = useCallback(() => {
-    try {
-      controller.current?.resume()
-    } catch {
-      controller.current?.play()
+    const c = controller.current
+    if (!c) return
+    // resume() no-ops until something has actually been loaded/played once;
+    // track that explicitly rather than relying on a postMessage call to
+    // throw (it won't) to decide whether play() is needed instead
+    if (hasStarted.current) c.resume()
+    else {
+      hasStarted.current = true
+      c.play()
     }
   }, [])
   const onNext = useCallback(() => load(pickIndex(1)), [load, pickIndex])
@@ -148,7 +184,7 @@ export default function GesturePlayer() {
         {failed && (
           <div className="spotify-loading">
             Fekk ikkje kontakt med Spotify —{" "}
-            <a href="https://open.spotify.com/playlist/37i9dQZF1DX4sWSpwq3LiO" target="_blank" rel="noopener">
+            <a href="https://open.spotify.com/artist/6kBDZFXuLrZgHnvmPu9NsG" target="_blank" rel="noopener">
               opne i Spotify
             </a>
           </div>

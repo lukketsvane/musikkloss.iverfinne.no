@@ -9,7 +9,7 @@ body{
   font-family:var(--font-inter),"Inter",system-ui,sans-serif; font-size:17px; line-height:1.6;
   -webkit-font-smoothing:antialiased; letter-spacing:.005em;
 }
-.wrap{max-width:var(--max); margin:0 auto; padding:0 28px}
+.wrap{max-width:var(--max); margin:0 auto; padding:0 16px}
 a{color:inherit}
 .serif{font-family:var(--font-newsreader),"Newsreader",Georgia,serif}
 
