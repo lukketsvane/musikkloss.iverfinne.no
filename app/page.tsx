@@ -2,6 +2,7 @@ import DetailStage from "@/components/DetailStage"
 import HeroStage from "@/components/HeroStage"
 import ColorPicker from "@/components/ColorPicker"
 import GesturePlayer from "@/components/GesturePlayer"
+import DimensionStage from "@/components/DimensionStage"
 import { Reveal } from "@/components/Reveal"
 
 export default function Page() {
@@ -92,6 +93,22 @@ export default function Page() {
                   <span>FDM · kobolt PLA</span>
                 </li>
               </ul>
+            </Reveal>
+          </div>
+        </section>
+
+        <section className="block">
+          <div className="two">
+            <Reveal>
+              <div className="k">mål</div>
+              <h2 className="serif">Får plass i handa.</h2>
+              <p>
+                62 × 60 × 42 millimeter — lita nok til å liggja i ei hand, tung nok til å kjennast
+                ekte. Kvar flate er målsett ned til millimeteren.
+              </p>
+            </Reveal>
+            <Reveal delay={120}>
+              <DimensionStage />
             </Reveal>
           </div>
         </section>
